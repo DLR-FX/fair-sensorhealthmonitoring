@@ -5,7 +5,7 @@ class SetupPDF():
         super(SetupPDF, self).__init__()
         self.pdf = FPDF(orientation = 'P', unit = 'mm', format='A4')
         self.pdf.add_page()
-        self.pdf.set_font("Arial", size=12)
+        self.pdf.set_font("Arial", size=10)
 
     def setContentPDF(self, warnings):
         for warning in warnings:
