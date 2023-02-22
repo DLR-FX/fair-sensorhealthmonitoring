@@ -16,7 +16,7 @@ class MailClient():
         self.msg = MIMEMultipart()
         self.PDF = cPDF.SetupPDF()
 
-    def setMailContent(self, warnings):
+    def set_mail_content(self, warnings):
         self.PDF.setContentPDF(warnings)
         self.msg['Subject'] = "Sensor Monitoring Report"
         self.msg['From'] = self.sender_email
