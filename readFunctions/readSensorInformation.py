@@ -16,13 +16,15 @@ correlation_types = {
     "30": "str"  # "str"
 }
 correlation_prop_id = {
-    "1001": "ename",
-    "1004": "edescription",
-    "1013": "eunit",
-    "1055": "esampling",
-    "1058": "eserial number",
-    "1064": "erelative path",
-    "1080": "eabsolute path",
+    "1000": "channel type",
+    "1001": "id",
+    "1004": "description",
+    "1013": "unit",
+    "1055": "sample time",
+    "1058": "device serial number",
+    "1064": "relative path",
+    "1080": "absolute path",
+    "1083": "device nickname"
 }
 
 
@@ -146,9 +148,16 @@ def sort_imcexp_data(xml_dict):
     # only allow entries with more than 40 property values
     imcexp_5 = {key: value for key, value in imcexp_4.items() if len(value) >= 40}  # actual parameters
     imcexp_5_2 = {key: value for key, value in imcexp_4.items() if len(value) < 40}  # status values
-
+    # apply 1083 value: Device Nickname to elements of same 1058:Device Serial number.
+    device_nickname_dict = {value["1058"]: value["1083"] for value in imcexp_5_2.values() if
+                            value.get("1083") is not None}
+    for value in imcexp_5.values():
+        value.update({"1083": device_nickname_dict[value["1058"]]})
     debug = False
     if debug:
+        # table for config values
+        df = pd.DataFrame(index=imcexp_4.keys(), data=imcexp_4.values())
+        df = df.reindex(sorted(df.columns), axis=1)
         # if ID 1001 exists for name. eventually compare lists containing
         rel_paths = imcexp_output_paths(xml_dict, desired_prop_id="1064")
         abs_paths = imcexp_output_paths(xml_dict, desired_prop_id="1080")
@@ -192,151 +201,63 @@ def config_from_istar_flight(flight_name: str) -> dict:
 
 
 def read_istar_config(file='../testing/conmo_20220530.imcexp'):
+    print("Start reading config for file: "+file)
     # parameter convention von stephan graeber: 1 links, 2 rechts
     imcexp = read_imcexp(path=file)
-
-    # parameter = "ASCB_ADS_Ads1ADA_airData50msec_mbBaroCorrection1_o"
-    # parameter = "NOSE_FFT1"
-    # exported_xml = read_config_xml.get_user_tags(parameter, r"C:\Users\klei_cl\Desktop\Geräteconfig_klein.de.xml")
-    # comparison_value = imcexp[parameter]
-
-    """    # debug and check for unique values
-    from itertools import chain
-    a = [[property["value"] for property in element.values() if property["type"] == "30" ] for element in
-         imcexp.values()]
-    b = list(dict.fromkeys(chain.from_iterable(a)))
-    """
     # output_paths = imcexp_output_paths(imcexp)
-    # get excel file from teamsite
-    # excel_file = get_excel_from_teamsite_to_config()
+    # filter list to rename columns
+    filter_list = {"unit": "unit", "description": "description", "frequency": "frequency",
+                   "sampling interval": "sample time", "parameter_id": "id"}
+    # get excel file from teamsite. beware to activate the vpn
+    excel_file = r"\\teamsites.dlr.de@SSL\DavWWWRoot\ft\ISTAR-FTI\Parameterlisten\AllParameters_ASCBD_V2.xlsx"
 
-    excel_file = "readFunctions/AllParameters_ASCBD_V2.xlsx"
+    # for debugging use local excel file
+    excel_file = r"readFunctions/AllParameters_ASCBD_V2.xlsx"
     # define sheets and columns containing the parameter name
     sheet_and_indices = [["Act Parameter ASCB", "Parameter_Name"],
                          ["Parameter Analog", "Parameter_Name"],
                          ["Parameter IMAR", "Parameternumber"],
                          ["Parameter NOSEBOOM", "Parameter_Name"]]
-    sensors_istar = {}
+
+    parameters_istar = {}
     for sheet_and_index in sheet_and_indices:
-        df = pd.read_excel(excel_file, sheet_name=sheet_and_index[0], index_col=sheet_and_index[1], header=0)
+        try:
+            df = pd.read_excel(excel_file, sheet_name=sheet_and_index[0], index_col=sheet_and_index[1], header=0)
+        except FileNotFoundError:
+            raise Exception("Please activate VPN.")
+        # rename columns according to filter list
+        columns = [element.lower().replace("\n", " ") for element in list(df.columns)]
+        for key, value in filter_list.items():
+            for n, column in enumerate(columns):
+                if key in column:
+                    columns[n] = value
+        df.columns = columns
         # generate dictionary with keys that possess keys named attribute names containing the cells
         # use dropna to remove nan values
-        sensors_istar.update({parameter: df.loc[parameter].dropna().to_dict() for parameter in list(df.index)})
+        parameters_istar.update({parameter: df.loc[parameter].dropna().to_dict() for parameter in list(df.index)})
 
-    # assign prop_id values and sensors_istar
+    # assign prop_id values and parameters_istar
     config = assign_prop_id_values(imcexp)
-    # TODO: implement abstract sensor classes
+    # TODO: implement ABSTRACT sensor classes
     # TODO: merge sensibly so imcexp has priority and is always right.
     #  unit, sampling rate, description not needed when imcexp already contains them.
-    filter_list = ["Unit", "Description", "Frequency\n[Hz]", "Sampling Interval"]
-    for sensor_name, sensor_value in config.items():
-        excel_value = sensors_istar.get(sensor_name)
-        if excel_value is not None:
-            config.get(sensor_name).update(excel_value)
 
+    for sensor_name, sensor_value in config.items():
+        if sensor_name[-2:] == "_o":
+            sensor_id = sensor_name[:-2]
+        else:
+            sensor_id = sensor_name
+        excel_value = parameters_istar.get(sensor_id)
+        if excel_value is not None:
+            excel_value.update(sensor_value)
+            # recalculate frequency
+            excel_value["frequency"] = 1 / excel_value["sample time"]
+            config[sensor_name] = excel_value
     return config
 
 
-def get_excel_from_teamsite_to_config():
-    # import all the libraries
-    from office365.runtime.auth.authentication_context import AuthenticationContext
-    from office365.sharepoint.client_context import ClientContext
-    from office365.sharepoint.files.file import File
-    import io
-    import pandas as pd
-    import json
-
-    from office365.runtime.auth.authentication_context import AuthenticationContext
-    from office365.runtime.client_request import ClientRequest
-    from office365.runtime.http.request_options import RequestOptions
-
-    # target url taken from sharepoint and credentials
-    url = "https://teamsites.dlr.de/ft/ISTAR-FTI/Parameterlisten/AllParameters_ASCBD_V2.xlsx"
-    url = "https://teamsites.dlr.de/ft/ISTAR-FTI/Parameterlisten/AllParameters_ASCBD_V2.xlsx?d=waa66ce7fc63840508a53598fd0451639"
-
-    tenant_url = "https://teamsites.dlr.de"
-    ctx_auth = AuthenticationContext(tenant_url)
-
-    site_url = "https://teamsites.dlr.de/ft/ISTAR-FTI"
-
-    if ctx_auth.acquire_token_for_user(username, password):
-        request = ClientRequest(ctx_auth)
-        options = RequestOptions("{0}/_api/web/".format(site_url))
-        options.set_header('Accept', 'application/json')
-        options.set_header('Content-Type', 'application/json')
-        data = request.execute_request_direct(options)
-        s = json.loads(data.content)
-        web_title = s['Title']
-        print("Web title: " + web_title)
-    else:
-        print(ctx_auth.get_last_error())
-
-    # save data to BytesIO stream
-    bytes_file_obj = io.BytesIO()
-    bytes_file_obj.write(response.content)
-    bytes_file_obj.seek(0)  # set file object to start
-
-    # read excel file and each sheet into pandas dataframe
-    df = pd.read_excel(bytes_file_obj, sheetname=None)
-    # read file into pandas dataframe
-
-    return bytes_file_obj
-
-
-def check_propid_assignment(file='../testing/conmo_20220530.imcexp'):
-    # compare values
-    prop_id_assignment = {
-        "1001": 'eChannelName',
-        "1004": 'eChannelComment',
-        "1013": 'eUserUnit',
-        "1031": 'eCurveYAxisMin',
-        "1032": 'eCurveYAxisMax',
-        "1055": 'eSampleTime',
-        "1058": 'eDeviceSN',
-        "1064": 'ePCFileName',
-    }
-    error_list = []
-    missing_values = []
-    imcexp = read_imcexp(path=file)
-    for parameter in imcexp:
-        xml = read_config_xml.get_user_tags(parameter, r"C:\Users\klei_cl\Desktop\Geräteconfig_klein.de.xml")
-        if xml is None:
-            missing_values.append(parameter)
-            continue
-        imc_value = imcexp[parameter]
-        # check prop_id values
-        for prop_id, xml_key in prop_id_assignment.items():
-            value = imc_value[prop_id]
-            # get xml element and check if it exists
-            xml_element = xml.get(xml_key)
-            if xml_element is not None:
-                xml_value = xml_element["value"]
-            else:
-                xml_value = None
-            # special case for our boi sampling rate
-            if xml_key == "eSampleTime":
-                value = str(int(float(value) * 1000)) + " ms"
-                if value == "1000 ms":
-                    value = "1 s"
-
-            if value == "":
-                value = None
-
-            if value != xml_value:
-                if xml_key in ["eSampleTime", "eUserUnit", "eChannelComment", "ePCFileName"]:
-                    if xml_key == "ePCFileName" and os.path.splitext(xml_value)[0] == os.path.splitext(value)[0]:
-                        continue
-                    error_string = parameter + ":\tError  XML: " + str(xml_value) + "\t\tprop_value: " + str(value)
-                    print(error_string)
-                    error_list.append(error_string)
-                elif float(value) != float(xml_value):
-                    error_string = parameter + ":\tError  XML: " + str(xml_value) + "\t\tprop_value: " + str(value)
-                    print(error_string)
-                    error_list.append(error_string)
-
-    print("finished")
-
 
 if __name__ == "__main__":
-    check_propid_assignment()
-    # read_istar_config()
+    # check_propid_assignment()
+    read_istar_config()
+    print("success")
