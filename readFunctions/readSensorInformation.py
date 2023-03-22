@@ -200,19 +200,10 @@ def config_from_istar_flight(flight_name: str) -> dict:
     return config
 
 
-def read_istar_config(file='../testing/conmo_20220530.imcexp'):
-    print("Start reading config for file: "+file)
-    # parameter convention von stephan graeber: 1 links, 2 rechts
-    imcexp = read_imcexp(path=file)
-    # output_paths = imcexp_output_paths(imcexp)
+def read_istar_excel(file):
     # filter list to rename columns
     filter_list = {"unit": "unit", "description": "description", "frequency": "frequency",
                    "sampling interval": "sample time", "parameter_id": "id"}
-    # get excel file from teamsite. beware to activate the vpn
-    excel_file = r"\\teamsites.dlr.de@SSL\DavWWWRoot\ft\ISTAR-FTI\Parameterlisten\AllParameters_ASCBD_V2.xlsx"
-
-    # for debugging use local excel file
-    excel_file = r"readFunctions/AllParameters_ASCBD_V2.xlsx"
     # define sheets and columns containing the parameter name
     sheet_and_indices = [["Act Parameter ASCB", "Parameter_Name"],
                          ["Parameter Analog", "Parameter_Name"],
@@ -222,7 +213,7 @@ def read_istar_config(file='../testing/conmo_20220530.imcexp'):
     parameters_istar = {}
     for sheet_and_index in sheet_and_indices:
         try:
-            df = pd.read_excel(excel_file, sheet_name=sheet_and_index[0], index_col=sheet_and_index[1], header=0)
+            df = pd.read_excel(file, sheet_name=sheet_and_index[0], index_col=sheet_and_index[1], header=0)
         except FileNotFoundError:
             raise Exception("Please activate VPN.")
         # rename columns according to filter list
@@ -235,6 +226,22 @@ def read_istar_config(file='../testing/conmo_20220530.imcexp'):
         # generate dictionary with keys that possess keys named attribute names containing the cells
         # use dropna to remove nan values
         parameters_istar.update({parameter: df.loc[parameter].dropna().to_dict() for parameter in list(df.index)})
+
+    return parameters_istar
+
+
+def read_istar_config(file='../testing/conmo_20220530.imcexp'):
+    print("Start reading config for file: " + file)
+    # parameter convention von stephan graeber: 1 links, 2 rechts
+    imcexp = read_imcexp(path=file)
+    # output_paths = imcexp_output_paths(imcexp)
+
+    # get excel file from teamsite. beware to activate the vpn
+    excel_file = r"\\teamsites.dlr.de@SSL\DavWWWRoot\ft\ISTAR-FTI\Parameterlisten\AllParameters_ASCBD_V2.xlsx"
+
+    # for debugging use local excel file
+    excel_file = r"readFunctions/AllParameters_ASCBD_V2.xlsx"
+    parameters_istar = read_istar_excel(excel_file)
 
     # assign prop_id values and parameters_istar
     config = assign_prop_id_values(imcexp)
@@ -254,7 +261,6 @@ def read_istar_config(file='../testing/conmo_20220530.imcexp'):
             excel_value["frequency"] = 1 / excel_value["sample time"]
             config[sensor_name] = excel_value
     return config
-
 
 
 if __name__ == "__main__":

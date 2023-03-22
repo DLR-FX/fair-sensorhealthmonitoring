@@ -5,11 +5,15 @@ import checkFunctions.sendMail as sendMail
 from readFunctions import readSensorInformation as Rsi
 from auxiliaryParsing.busDefinitions import labels_inetx
 from Parsing.parseFunctions import get_variables_from_database, find_string_list_in_string_list, get_mean_noise, \
-    timestamp_from_utc, utc_from_timestamp
+    timestamp_from_utc, utc_from_timestamp, data_dict_to_dataframe
 from stashclient.client import Client
 from readFunctions.readSensorInformation import config_from_istar_flight
 import pandas as pd
 from tqdm import tqdm
+import matplotlib.pyplot as plt
+
+ft2m = 0.3048
+m2ft = 1 / (ft2m)
 
 
 class check_logic():
@@ -76,16 +80,73 @@ class check_logic():
 
         missing_parameters, flight_parameters = self.layer_one_from_stash(collection_id, config.keys())
         print("level 1 check complete")
-        level_2_notes = self.layer_two_from_stash(collection_id, config)
+        # level_2_notes = self.layer_two_from_stash(collection_id, config)
+        level_2_notes = {}
         print("level 2 check complete")
+        # collect gps altitudes and calculate differences.
 
         # TODO: Level 3
+        # download imar vs ascb gps and compare
+        ascb = "ASCB_GPS_Gps1aGps429_gps50msec429_altitude_o"
+        imar = "IMAR_GNSS_Altitude"
+        imar = "IMAR_INS_Altitude"
+        # download
+        ascb_data = self.download_series(flight_parameters[ascb])
+        imar_data = self.download_series(flight_parameters[imar])
+        # resample to 1 Hz
+        df = data_dict_to_dataframe({ascb: [ascb_data, ascb], imar: [imar_data, imar]}, 1)
+        df[ascb] = df[ascb] * ft2m
+        alt_diff = "altitude difference"
+        df[alt_diff] = df[ascb] - df[imar]
+
+        fig, ax1 = plt.subplots()
+
+        color = 'tab:red'
+        ax1.set_ylabel("Difference of ASCB to IMAR [m]", color=color)
+        ax1.plot(df[alt_diff], color=color)
+        ax1.tick_params(axis='y', labelcolor=color)
+
+        ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+
+        color = 'tab:blue'
+        ax2.set_ylabel("ASCB-GPS Altitude [m]", color=color)  # we already handled the x-label with ax1
+        ax2.plot(df[ascb], color=color)
+        ax2.tick_params(axis='y', labelcolor=color)
+        ax2.plot(df[imar])
+        plt.title("Difference of Gps Altitude")
+        fig.tight_layout()  # otherwise the right y-label is slightly clipped
+        plt.show()
+
+        # TODO: find a measure to autamatically generate thresholds
+
+        # differences: mean has to be zero. Interesting spots: outside stdev
+
         # upload to stash. append to user_tags:SHM
         shm_dict = {"SHM": {"missing parameters": missing_parameters,
                             "single sensor behaviour": level_2_notes}}
         flight_list[0]["user_tags"].update(shm_dict)
         self.instance.update(flight_list[0]["id"], {"user_tags": flight_list[0]["user_tags"]})
         print("upload complete")
+
+    def download_series(self, id):
+        """
+        attribute id is the stash id for a parameter series so that
+        is_basis_series = False
+        :param id:
+        :type id:
+        :return:
+        :rtype:
+        """
+        properties = self.instance.search({"id": id})[0]
+        if properties["is_basis_series"] == False:
+            properties_time_series = self.instance.search({"series_connector_id": properties["series_connector_id"],
+                                                           "is_basis_series": True})[0]
+            time_data = self.instance.data(properties_time_series["id"])
+            parameter_data = self.instance.data(id)
+
+            return [time_data, parameter_data]
+        else:
+            raise Exception("Wrong input type for download_series in check_logic.py: is_basis_series must be False")
 
     def get_parameter_from_stash(self):
         pass
@@ -122,17 +183,18 @@ class check_logic():
             {"parent": flight_id, "type": "series", "is_basis_series": False})
 
         # this has to be used to program out martins parameter abbreviations
-        parameter_names = []
+        parameter_names = {}
         for parameter in parameter_list:
             if "user_tags" in parameter and "Name" in parameter.get("user_tags"):
-                parameter_names.append(parameter.get('user_tags')["Name"]["value"])
+                parameter_names.update({parameter.get('user_tags')["Name"]["value"]:
+                                            parameter['id']})
             else:
-                print(parameter.get("name"))
-                parameter_names.append(parameter.get("name"))
+                print("No user tag \"name\" for parameter: " + parameter.get("name"))
+                parameter_names.update({parameter.get("name"): ["id"]})
 
         # use "any" logic if it doesn't match to anything
         missing_parameters = [param for param in config_parameters
-                              if not any(stash_param in param for stash_param in parameter_names)]
+                              if not any(stash_param in param for stash_param in parameter_names.keys())]
         return missing_parameters, parameter_names
 
     def layer_one_check(self):
