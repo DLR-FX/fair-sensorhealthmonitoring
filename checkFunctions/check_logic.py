@@ -1,16 +1,15 @@
 import pandas as pd
 
-from auxiliaryParsing import pickleFunctions
 import checkFunctions.sendMail as sendMail
 from readFunctions import readSensorInformation as Rsi
-from auxiliaryParsing.busDefinitions import labels_inetx
-from Parsing.parseFunctions import get_variables_from_database, find_string_list_in_string_list, get_mean_noise, \
-    timestamp_from_utc, utc_from_timestamp, data_dict_to_dataframe
+from config.dcode_busDefinitions import labels_inetx
+from Parsing.parseFunctions import get_variables_from_database, utc_from_timestamp, data_dict_to_dataframe
 from stashclient.client import Client
 from readFunctions.readSensorInformation import config_from_istar_flight
 import pandas as pd
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from checkFunctions.level3 import altitude_from_pressure
 
 ft2m = 0.3048
 m2ft = 1 / (ft2m)
@@ -87,10 +86,20 @@ class check_logic():
 
         # TODO: Level 3
         # download imar vs ascb gps and compare
+
+
+
         ascb = "ASCB_GPS_Gps1aGps429_gps50msec429_altitude_o"
         imar = "IMAR_GNSS_Altitude"
         imar = "IMAR_INS_Altitude"
+        baro = "ASCB_ADS_Ads1ADA_airData50msec_baroAltitude1_o"
+        p_static = "ASCB_ADS_Ads1ADA_airData50msec_staticPressure"
+        p_ref = "ASCB_ADS_Ads1ADA_airData50msec_mbBaroCorrection1"
+        baro_uncorr = "ASCB_ADS_Ads1ADA_airData50msec_pressureAltitude"
+
         # download
+        df["altitude"] = df.apply(altitude_from_pressure(df["pressure"], df["reference_pressure"]), axis=1)
+
         ascb_data = self.download_series(flight_parameters[ascb])
         imar_data = self.download_series(flight_parameters[imar])
         # resample to 1 Hz
