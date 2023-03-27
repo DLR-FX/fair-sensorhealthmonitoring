@@ -1,12 +1,7 @@
 # TODO: app to fetch stash projects of instance and display projects as well as flights
-import pandas as pd
-from dash import Dash, Input, Output, State, dcc, html, dash_table
-import stashclient
+from dash import Dash, Input, Output, State, dcc, html
 from stashclient.client import Client
-import plotly.graph_objects as go
-import dash_daq as daq
 import plotly.express as px
-from readFunctions.readSensorInformation import read_istar_excel
 
 # first: instance
 instances = {"Production": "prod", "Development": "dev"}

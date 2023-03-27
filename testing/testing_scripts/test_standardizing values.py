@@ -1,20 +1,15 @@
 # % source: https://www.datacamp.com/tutorial/principal-component-analysis-in-python
 
-from sklearn.datasets import load_breast_cancer
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
-from upAndDownload.stash_communication import StashInterface
-from Parsing.parseFunctions import data_dict_to_dataframe, timestamp_from_datetime, \
-    interpolate_frequency_from_pd_series, get_mean_noise
-from auxiliaryParsing import pickleFunctions
+from stashComms.stash_communication import StashInterface
+from Parsing.parseFunctions import get_mean_noise
 import pandas as pd
 import seaborn as sns
 import networkx as nx
 import scipy
-from datetime import datetime as dt
 
 
 def pca_plot(pca_total, z_data, parameter):
