@@ -1,4 +1,3 @@
-import checkFunctions.sendMail as sendMail
 from Parsing import parseIMCEXP as Rsi
 import pandas as pd
 import checkFunctions.sendMail as sendMail
@@ -9,10 +8,13 @@ from Parsing.parseIMCEXP import config_from_istar_flight
 import pandas as pd
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from checkFunctions.level3 import altitude_from_pressure
+from checkFunctions.level3 import altitude_from_pressure, short_time_statistics, fuse_redundant_sensors, \
+    compare_reference_to_signal, normalize_unit
+import numpy as np
 
 ft2m = 0.3048
 m2ft = 1 / (ft2m)
+inHg2hPa = 33.8639
 
 
 class check_logic():
@@ -72,6 +74,7 @@ class check_logic():
         flight_list = self.instance.search({"id": collection_id})
         # get parameter reference list from imcexp
         if flight_list[0]["user_tags"]["registration"] == "D-BDLR":
+            config = {}
             config = config_from_istar_flight(flight_list[0]["name"])
         else:
             print("unknown aircraft")
@@ -80,64 +83,57 @@ class check_logic():
         missing_parameters, flight_parameters = self.layer_one_from_stash(collection_id, config.keys())
         print("level 1 check complete")
         # level_2_notes = self.layer_two_from_stash(collection_id, config)
-        level_2_notes = {}
         print("level 2 check complete")
         # collect gps altitudes and calculate differences.
-
-        # TODO: Level 3
-        # download imar vs ascb gps and compare
-
-
-
-        ascb = "ASCB_GPS_Gps1aGps429_gps50msec429_altitude_o"
-        imar = "IMAR_GNSS_Altitude"
-        imar = "IMAR_INS_Altitude"
-        baro = "ASCB_ADS_Ads1ADA_airData50msec_baroAltitude1_o"
-        p_static = "ASCB_ADS_Ads1ADA_airData50msec_staticPressure"
-        p_ref = "ASCB_ADS_Ads1ADA_airData50msec_mbBaroCorrection1"
-        baro_uncorr = "ASCB_ADS_Ads1ADA_airData50msec_pressureAltitude"
-
-        # download
-        #df["altitude"] = df.apply(altitude_from_pressure(df["pressure"], df["reference_pressure"]), axis=1)
-
-        ascb_data = self.download_series(flight_parameters[ascb])
-        imar_data = self.download_series(flight_parameters[imar])
-        # resample to 1 Hz
-        df = data_dict_to_dataframe({ascb: [ascb_data, ascb], imar: [imar_data, imar]}, 1)
-        df[ascb] = df[ascb] * ft2m
-        alt_diff = "altitude difference"
-        df[alt_diff] = df[ascb] - df[imar]
-
-        fig, ax1 = plt.subplots()
-
-        color = 'tab:red'
-        ax1.set_ylabel("Difference of ASCB to IMAR [m]", color=color)
-        ax1.plot(df[alt_diff], color=color)
-        ax1.tick_params(axis='y', labelcolor=color)
-
-        ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-
-        color = 'tab:blue'
-        ax2.set_ylabel("ASCB-GPS Altitude [m]", color=color)  # we already handled the x-label with ax1
-        ax2.plot(df[ascb], color=color)
-        ax2.tick_params(axis='y', labelcolor=color)
-        ax2.plot(df[imar])
-        plt.title("Difference of Gps Altitude")
-        fig.tight_layout()  # otherwise the right y-label is slightly clipped
-        plt.show()
-
-        # TODO: find a measure to autamatically generate thresholds
-
-        # differences: mean has to be zero. Interesting spots: outside stdev
-
         # upload to stash. append to user_tags:SHM
-        shm_dict = {"SHM": {"missing parameters": missing_parameters,
-                            "single sensor behaviour": level_2_notes}}
-        flight_list[0]["user_tags"].update(shm_dict)
-        self.instance.update(flight_list[0]["id"], {"user_tags": flight_list[0]["user_tags"]})
+        shm_dict = {"missing parameters": missing_parameters,
+                    "single sensor behaviour": level_2_notes}
+        self.update_shm_usertags(collection_id, shm_dict)
+        # TODO: Level 3 only with parameters that are not wonky
+        self.level_3(flight_parameters, config)
+        # Kovarianz/Korrelation des generierten und tatsächlichen signals vergleichen
+        # download imar vs ascb gps and compare
+        parameter_down = {
+            "baro": "ASCB_ADS_Ads1ADA_airData50msec_baroAltitude1_o",
+            "p_static": "ASCB_ADS_Ads1ADA_airData50msec_staticPressure_o",
+            "p_ref": "ASCB_ADS_Ads1ADA_airData50msec_mbBaroCorrection1_o",
+            "baro_uncorr": "ASCB_ADS_Ads1ADA_airData50msec_pressureAltitude_o",
+            "p_static_nose": "NOSE_StaticPressure"
+        }
+        parameter_two = {
+            "pressure_alt": "ASCB_ADS_Ads1ADA_airData50msec_pressureAltitude_o",
+            "baro_alt": "ASCB_ADS_Ads1ADA_airData50msec_baroAltitude1_o",
+            "static pressure": "ASCB_ADS_Ads1ADA_airData50msec_staticPressure_o",
+            "baro_ref": "ASCB_ADS_Ads1ADA_airData50msec_mbBaroCorrection1_o",
+            "gps": "ASCB_GPS_Gps1aGps429_gps50msec429_altitude_o",
+            "cas": "ASCB_ADS_Ads1ADA_airData50msec_calibratedAirspeed_o"
+        }
+
+        parameter_data = {}
+        for key, value in parameter_down.items():
+            parameter_data.update({key: [self.download_series(flight_parameters[value]), key]})
+        # resample and into dataframe
+        df = data_dict_to_dataframe(parameter_data, 25)
+
         print("upload complete")
 
-    def download_series(self, id):
+    def update_shm_usertags(self, id, shm_dict):
+        """
+        receive
+        -collection, series or project id
+        -dictionary containing elements of Sensor Health Monitoring JSON-dict
+        :param id:
+        :type id:
+        :param shm_dict:
+        :type shm_dict:
+        :return:
+        :rtype:
+        """
+        flight_list = self.instance.search({"id": id})
+        flight_list[0]["user_tags"].update({"SHM": shm_dict})
+        self.instance.update(id, {"user_tags": flight_list[0]["user_tags"]})
+
+    def download_series(self, id, convert_to_SI=False):
         """
         attribute id is the stash id for a parameter series so that
         is_basis_series = False
@@ -150,12 +146,25 @@ class check_logic():
         if properties["is_basis_series"] == False:
             properties_time_series = self.instance.search({"series_connector_id": properties["series_connector_id"],
                                                            "is_basis_series": True})[0]
-            time_data = self.instance.data(properties_time_series["id"])
-            parameter_data = self.instance.data(id)
+            time_data = self.instance.data(properties_time_series["id"], "list")
+            parameter_data = self.instance.data(id, "list")
 
-            return [time_data, parameter_data]
+            if convert_to_SI:
+                si_unit, parameter_data = normalize_unit(properties["unit"], parameter_data)
+
+            return [time_data, list(parameter_data)]
         else:
             raise Exception("Wrong input type for download_series in check_logic.py: is_basis_series must be False")
+
+    def download_series_si(self, id):
+        """
+        download series and convert to si unit
+
+        :param id:
+        :type id:
+        :return:
+        :rtype:
+        """
 
     def get_parameter_from_stash(self):
         pass
@@ -195,8 +204,7 @@ class check_logic():
         parameter_names = {}
         for parameter in parameter_list:
             if "user_tags" in parameter and "Name" in parameter.get("user_tags"):
-                parameter_names.update({parameter.get('user_tags')["Name"]["value"]:
-                                            parameter['id']})
+                parameter_names.update({parameter.get('user_tags')["Name"]: parameter['id']})
             else:
                 print("No user tag \"name\" for parameter: " + parameter.get("name"))
                 parameter_names.update({parameter.get("name"): ["id"]})
@@ -224,20 +232,6 @@ class check_logic():
         """
         cleanup function. Checks whether values are in range and updates the notes section of SHM to display any
         anomalies
-        :param notes:
-        :type notes:
-        :param check_series:
-        :type check_series:
-        :param min_range:
-        :type min_range:
-        :param max_range:
-        :type max_range:
-        :param warning_string:
-        :type warning_string:
-        :param parameter_name:
-        :type parameter_name:
-        :return:
-        :rtype:
         """
         values_exceeded = check_series[~check_series.between(min_range, max_range)]
         if len(values_exceeded) > 0:
@@ -250,7 +244,7 @@ class check_logic():
         # LEVEL 2
         parameter_list = self.instance.search(
             {"parent": collection_id, "type": "series", "is_basis_series": False})
-        # check definition
+        # check definitions here
         checks = {"physical": {"error_tag": "physical values out of range",
                                "min": "physical range min",
                                "max": "physical range max"},
@@ -258,13 +252,14 @@ class check_logic():
                                 "min": "amplitude min",
                                 "max": "amplitude max"}}
         notes = {value["error_tag"]: {} for value in checks.values()}
+        # transform into column names
         column_names = []
         for value in checks.values():
             column_names.extend([value.get("min"), value.get("max")])
 
         progress_bar = tqdm(parameter_list)
         for parameter in progress_bar:
-            parameter_name = parameter["user_tags"]["Name"]["value"]
+            parameter_name = parameter["user_tags"]["Name"]
             parameter_config = config[parameter_name]
             progress_bar.set_description("Processing %s" % parameter_name)
             # check if any of the given checks for min and max are within the parameter config
@@ -275,7 +270,8 @@ class check_logic():
                     range = [parameter_config.get(check["min"]), parameter_config.get(check["max"])]
                     if any(range):
                         self.update_notes(notes, series, range[0], range[1], check["error_tag"], parameter_name)
-                """
+
+                """ how does get_mean_noise() still work?????
                 # check range
                 min_range, max_range = parameter_config.get("physical range min"), \
                                        parameter_config.get("physical range max")
@@ -292,113 +288,72 @@ class check_logic():
                 """
         return notes
 
-    def layer_two_check(self):
-        self.create_layer_two_list()
-        self.check_layer_two_parameter()
+    """
+    ██╗░░░░░███████╗██╗░░░██╗███████╗██╗░░░░░  ██████╗░
+    ██║░░░░░██╔════╝██║░░░██║██╔════╝██║░░░░░  ╚════██╗
+    ██║░░░░░█████╗░░╚██╗░██╔╝█████╗░░██║░░░░░  ░█████╔╝
+    ██║░░░░░██╔══╝░░░╚████╔╝░██╔══╝░░██║░░░░░  ░╚═══██╗
+    ███████╗███████╗░░╚██╔╝░░███████╗███████╗  ██████╔╝
+    ╚══════╝╚══════╝░░░╚═╝░░░╚══════╝╚══════╝  ╚═════╝░
+    """
 
-    def check_layer_two_parameter(self):
-        self.check_noise()
-        self.check_valid_value()
-        self.check_range()
+    def level_3(self, parameter_list, config):
+        # TODO: create routine for each parameter tag
+        # decide between direct/indirect parameters
 
-    def check_range(self):
-        # for each sensor in layerTwoList
-        for parameter in self.layerTwoList:
-            checkElement = self.data[parameter][0][1]
-            loopCount = 0
-            lastid = -1
-            # for each value in the in the value list form that sensor (checkElement)
-            for value in checkElement:
-                # if the value is over the limit max or under the limit min and that value is not in any of the other value error list or in that list
-                # append that sensor
-                # TODO: good idea to log the value just once but perhaps a good addition to add the time at which it happened
-                if self.parameter_in_range(parameter, value):
-                    if parameter not in self.layerOneWarning and (
-                            parameter + " - WARNING: Layer Two Warning - Out of Range") not in self.layerTwoWarning \
-                            and (value != checkElement[lastid]):
-                        self.layerTwoWarning.append(parameter + " - WARNING: Layer Two Warning - Out of Range")
-                        lastid = loopCount
-                continue
-            loopCount += 1
+        # ALTITUDES
+        ##start with barometrics
+        # get parameter names that have references:
+        taglist = ["barometric altitude", "pressure altitude", "static pressure", "ellipsoid altitude",
+                   "orthometric altitude"]
+        correlation_dict = {}
+        # collect tags from config and stash
+        for parameter_key, parameter_value in config.items():
+            if parameter_value.get("tag") is not None:
+                # add new tags to dictionary
+                if correlation_dict.get(parameter_value.get("tag")) is None:
+                    correlation_dict[parameter_value.get("tag")] = {}
+                # add parameters to correlation dictionary
+                correlation_dict[parameter_value.get("tag")].update({parameter_key: parameter_value})
 
-    def check_valid_value(self):
-        # for each parameter in layerTwoList
-        for parameter in self.layerTwoList:
-            # get list of the element for that parameter
-            checkElement = self.data[parameter][0][1]
-            loopCount = 0
-            lastid = -1
-            for value in checkElement:
-                # if any value in checkElement has one of the following values and that value is not in the warning list
-                if value == 999 or value == 000 or str(value) == "nan" or value == None:
-                    if parameter not in self.layerOneWarning and (
-                            parameter + " - WARNING: Layer Two Warning - No Valid Value") not in self.layerTwoWarning \
-                            and value != checkElement[lastid]:
-                        # append layerTwowraring list and add the loop count to print location of that Warning
-                        self.layerTwoWarning.append(
-                            parameter + " - WARNING: Layer Two Warning - No Valid Value - ID: " + str(loopCount))
-                        lastid = loopCount
-                    continue
-                loopCount += 1
+        self.level3_baro(correlation_dict, parameter_list)
 
-    def parameter_in_range(self, name, value):
-        if self.sensorReader.limits.get(name) is not None:
-            return value > self.sensorReader.limits[name]["limits"]["max"] or value < \
-                   self.sensorReader.limits[name]["limits"]["min"]
-        else:
-            return True
+        print("level 3")
 
-    def parameter_has_noise(self, name):
-        if self.sensorReader.limits.get(name) is not None:
-            return self.sensorReader.limits[name]["extras"]["noise"]
-        else:
-            return False
 
-    def check_noise(self):
-        # TODO: whats the algorithm here?
-        # for each element in the layerTwoList
-        for parameter in self.layerTwoList:
-            # check if the parameter should have noise
-            if self.parameter_has_noise(parameter):
-                # from the parameter get all elements
-                checkElement = self.data[parameter][0][1]
-                loopCount = 0
-                lastid = 0
-                # for each element in the element list
-                for element in checkElement:
-                    checkElementList = checkElement[loopCount:loopCount + 250]
-                    checkSum = 0
-                    # sum up the element in the range of 250
-                    for element in checkElementList:
-                        checkSum += element
-                    # calculate the middle value from that elements
-                    checkSum = checkSum / 250
-                    # if the elemnt has the same value as the checksum there is no noise in the sensor that means the next 250 values
-                    # doesnt have overall the the value as the active element
-                    if element == checkSum:
-                        # if that element is not in the layerOneWaring and also not added into the layerTwo list and active element is not the
-                        # checkElement[lastid] and the loop count is not 0
-                        if parameter not in self.layerOneWarning \
-                                and parameter + " - WARNING: Layer Two Warning - Noise Problem - ID: " + str(
-                            loopCount) not in self.layerTwoWarning \
-                                and (element != checkElement[lastid] or loopCount == 0):
-                            self.layerTwoWarning.append(
-                                parameter + " - WARNING: Layer Two Warning - Noise Problem - ID: " + str(loopCount))
-                            lastid = loopCount
-                    loopCount += 1
-            else:
-                continue
+    def level3_baro(self, correlation_dict, parameter_list):
+        # get altitudes that are tagged with "barometric altitude"
+        # dont get altitudes that are tagged with "pressure altitude". seem useless and redundant with barometric altitude
+        # "static pressure" needs "reference altitude" parameter name directly within its metadata
 
-    def create_layer_two_list(self):
-        # remove all elements form layerTwoList which had a Layer One Warning
-        self.layerTwoList = list(self.requiredParameterList.keys())
-        for parameter in self.layerOneWarning:
-            self.layerTwoList.remove(parameter)
+        df_altitudes = pd.DataFrame()
 
-    def print_warning(self):
-        # for each layer print the erroors
-        for parameter in self.layerOneWarning:
-            self.warning.append(parameter + " - WARNING: Layer One Warning - Parameter not Found")
-        self.warning += self.layerTwoWarning
-        for parameter in self.warning:
-            print(parameter)
+        # static pressure to barometric altitude
+        for element in correlation_dict["static pressure"].keys():
+            # download pressure and reference pressure
+            pressure = self.download_series(parameter_list[element], convert_to_SI=True)
+            reference_pressure = self.download_series(parameter_list[config[element]["reference"]], convert_to_SI=True)
+            df = data_dict_to_dataframe(
+                {"pressure": [pressure, "pressure"], "reference": [reference_pressure, "reference"]}, 25)
+            # convert to barometric altitude
+            altitude = altitude_from_pressure(df["pressure"], df["reference"])
+            df_altitudes[element] = altitude
+
+        for element in correlation_dict["barometric altitude"].keys():
+            altitude = self.download_series(parameter_list[element], convert_to_SI=True)
+            df = data_dict_to_dataframe(
+                {"altitude": [altitude, "altitude"]}, 25)
+            df_altitudes[element] = df["altitude"]
+
+        # join barometric altitudes
+        fused_altitude = fuse_redundant_sensors(df_altitudes)
+
+        # compare fused to single sensors
+        for altitude in list(df_altitudes.columns):
+            # compare and upload info to sensor user_tags SHM
+            report = compare_reference_to_signal(fused_altitude, df_altitudes[altitude])
+            # upload
+            report["suspicious values"] = self.pandas_to_list(report["suspicious values"])
+            self.update_shm_usertags(parameter_list[altitude], report)
+
+
