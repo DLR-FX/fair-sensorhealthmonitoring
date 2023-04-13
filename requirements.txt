@@ -1,6 +1,0 @@
-numpy==1.23.5
-pandas==1.5.2
-regex==2022.10.31
-stashclient==1.27
-stashcore==1.27
-
