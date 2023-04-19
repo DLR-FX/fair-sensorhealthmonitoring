@@ -18,6 +18,7 @@ istar_config = read_istar_excel(r"D:\working_dir\Programmieren\laufende Projekte
 config_df = pd.DataFrame(index=istar_config.keys(), data=istar_config.values())
 config_df = config_df[config_df['sheet'].notna()]
 """
+
 app = Dash(__name__)
 app.title = "stashboard: the stash's FTI dashboard"
 

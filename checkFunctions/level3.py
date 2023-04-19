@@ -8,7 +8,7 @@ import numpy as np
 from ambiance import Atmosphere
 
 
-def normalize_unit(unit_in, vector_in):
+def normalize_unit(vector_in, unit_in):
     """
     todo: write tests
 
@@ -45,10 +45,10 @@ def normalize_unit(unit_in, vector_in):
     }
 
     output_value = unit_correlation[unit_in]
-    func_si = np.vectorize(output_value["equation"])
+    func_unit_tf = np.vectorize(output_value["equation"])
     unit_out = output_value["unit"]
-    vector_out = func_si(vector_in)
-    return unit_out, vector_out
+    vector_out = func_unit_tf(vector_in)
+    return vector_out, unit_out
 
 
 def altitude_from_pressure(p, p_0) -> float:
@@ -138,7 +138,7 @@ def alt_from_p(pressure, isa_ranges):
             else:
                 raise Exception("Invalid isa a i within altitude from pressure")
     if h is np.nan:
-        #warnings.warn("No valid pressure found for pressure: " + str(pressure))
+        # warnings.warn("No valid pressure found for pressure: " + str(pressure))
         pass
     return h
 
@@ -202,7 +202,7 @@ def short_time_statistics(series, nperseg=256):
     return report
 
 
-def detect_suspicious_behaviour(value, mean, stdev, factor=6):
+def detect_suspicious_behaviour(value, mean, stdev, factor=6)->float:
     """
     detect values that are above "factor" times standard deviation
 
@@ -218,18 +218,17 @@ def detect_suspicious_behaviour(value, mean, stdev, factor=6):
     :return:
     :rtype:
     """
-    #check if value is outside standard deviation and if it is also not None
-    if pd.notna(value) and value > (mean + factor * stdev) or value < (mean - factor * stdev):
+    out_value = 0
+    # check if value is outside standard deviation and if it is also not None
+    if pd.notna(value) and value > (mean + factor * stdev) or value < (mean - factor * stdev) and stdev / mean > 0.01:
         # define signal to noise ratio limit. E.g. snr = stdev/mean >! 0.01
         # add to issues list if signal t
-        if stdev / mean > 0.01:
-            return (value-mean)/stdev
-        else:
-            return 0
-    elif pd.isna(value): # check if value is "not a number"
-        return 1
+        out_value = (value - mean) / stdev
+    elif pd.isna(value):  # check if value is "not a number"
+        out_value = 1.0
     else:
-        return 0
+        out_value = 0
+    return out_value
 
 
 def compare_reference_to_signal(reference, signal):

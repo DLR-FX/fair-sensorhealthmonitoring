@@ -83,8 +83,8 @@ class check_logic():
         missing_parameters, flight_parameters = self.layer_one_from_stash(collection_id, config.keys())
         print("level 1 check complete")
         # level_2_notes = self.layer_two_from_stash(collection_id, config)
+        level_2_notes = {}
         print("level 2 check complete")
-        # collect gps altitudes and calculate differences.
         # upload to stash. append to user_tags:SHM
         shm_dict = {"missing parameters": missing_parameters,
                     "single sensor behaviour": level_2_notes}
@@ -150,7 +150,7 @@ class check_logic():
             parameter_data = self.instance.data(id, "list")
 
             if convert_to_SI:
-                si_unit, parameter_data = normalize_unit(properties["unit"], parameter_data)
+                parameter_data, si_unit = normalize_unit(parameter_data, properties["unit"])
 
             return [time_data, list(parameter_data)]
         else:
@@ -316,12 +316,12 @@ class check_logic():
                 # add parameters to correlation dictionary
                 correlation_dict[parameter_value.get("tag")].update({parameter_key: parameter_value})
 
-        self.level3_baro(correlation_dict, parameter_list)
+        self.level3_baro(correlation_dict, parameter_list, config)
 
         print("level 3")
 
 
-    def level3_baro(self, correlation_dict, parameter_list):
+    def level3_baro(self, correlation_dict, parameter_list, config):
         # get altitudes that are tagged with "barometric altitude"
         # dont get altitudes that are tagged with "pressure altitude". seem useless and redundant with barometric altitude
         # "static pressure" needs "reference altitude" parameter name directly within its metadata
