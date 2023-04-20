@@ -32,12 +32,9 @@ body {
 }
 
 .wrapper {
-    margin-right: auto;
-    margin-left: auto;
-    max-width: 1024px;
-    padding-right: 10px;
-    padding-left: 10px;
-    margin-top: 32px;
+    width: 70%;
+    margin-right: 2.5%;
+    margin-left: 2.5%;
 }
 
 .card {
@@ -75,18 +72,12 @@ body {
     font-weight: bold;
     color: #079A82;
 }
-
-.wrapper12{
-    margin-right: auto;
-    margin-left: auto;
-    max-width: 1024px;
-    padding-right: 10px;
-    padding-left: 10px;
-    margin-top: 32px;
-    display: flex;
-    justify-content: space-evenly;
+#level3 {
+    width: 95%;
 }
-.level1{
-    max-width:250px;
-    max-height: 250px;
+#level1 {
+    width: 25%
+}
+#level2 {
+    width: 100%
 }

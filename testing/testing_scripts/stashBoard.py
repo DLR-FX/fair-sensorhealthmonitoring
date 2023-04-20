@@ -4,9 +4,7 @@ from dash import Dash, Input, Output, State, dcc, html, dash_table
 import stashclient
 from stashclient.client import Client
 import plotly.graph_objects as go
-import dash_daq as daq
 import plotly.express as px
-from readFunctions.readSensorInformation import read_istar_excel
 
 # first: instance
 instances = {"Production": "prod", "Development": "dev"}
@@ -78,24 +76,27 @@ app.layout = html.Div(
         html.Div(
             children=[
                 html.Div(children=[
-                    html.Div(children=[
-                        html.P("Level 1"),
-                        dcc.Graph(figure=px.pie(None),
-                                  id="parameter-pie")
-                    ], id="level1", className="wrapper"),
-
-                    html.Div(children=[
-                        html.P("Level 2"),
-                        #dash_table.DataTable(id="level2-table")
-                    ], id="level2", className="card")
-                ],
-                    id="level1,2",
-                    className="level12"
-                ),
-                html.Div(children=[], id="level3", className="card"),
+                    html.P("Level 1"),
+                    dcc.Graph(figure=px.pie(None),
+                              id="parameter-pie")
+                ],className="wrapper", id="level1"),
+                html.Div(children=[
+                    html.P("Level 2"),
+                    dcc.Graph(figure=px.pie(None))
+                ], className="wrapper"),
             ],
-            style={'display': 'flex', 'flex-direction': 'row'},
-            #id="shm-div",
+            style={'width': '100%',   'display': 'flex', 'flex-direction': 'row'}
+            # id="shm-div",
+        ),
+        html.Div(
+            children=[
+                html.Div(children=[
+                    html.P("Level 1"),
+                    dcc.Graph(figure=px.pie(None))
+                ], className="wrapper", id="level3"),
+            ],
+            style={'width': '100%', 'display': 'flex', 'flex-direction': 'row'}
+            # id="shm-div",
         )
     ],
 )
