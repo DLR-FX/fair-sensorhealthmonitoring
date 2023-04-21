@@ -4,7 +4,6 @@ import os
 import pandas as pd
 import subprocess
 import xmltodict
-import auxiliaryParsing.readConfigXml as read_config_xml
 import re
 import warnings
 

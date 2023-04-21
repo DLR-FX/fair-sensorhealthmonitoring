@@ -7,6 +7,9 @@ import plotly.graph_objects as go
 import dash_daq as daq
 import plotly.express as px
 from readFunctions.readSensorInformation import read_istar_excel
+import dash_bootstrap_components as dbc
+from datetime import datetime
+import pytz
 
 # first: instance
 instances = {"Production": "prod", "Development": "dev"}
@@ -23,6 +26,7 @@ istar_config = read_istar_excel(r"D:\working_dir\Programmieren\laufende Projekte
 config_df = pd.DataFrame(index=istar_config.keys(), data=istar_config.values())
 config_df = config_df[config_df['sheet'].notna()]
 """
+
 app = Dash(__name__)
 app.title = "stashboard: the stash's FTI dashboard"
 
@@ -75,33 +79,95 @@ app.layout = html.Div(
             ],
             className="menu",
         ),
+        html.Div([html.P("Timeline"),
+                  dcc.Graph(
+                      id='graph-timeline',
+                  )
+                  ],
+                 id="div-timeline"
+                 ),
         html.Div(
             children=[
                 html.Div(children=[
-                    html.Div(children=[
-                        html.P("Level 1"),
-                        dcc.Graph(figure=px.pie(None),
-                                  id="parameter-pie")
-                    ], id="level1", className="wrapper"),
-
-                    html.Div(children=[
-                        html.P("Level 2"),
-                        #dash_table.DataTable(id="level2-table")
-                    ], id="level2", className="card")
-                ],
-                    id="level1,2",
-                    className="level12"
+                    html.P("Level 1"),
+                    dcc.Graph(figure=px.pie(None), style={"width": "28vh", "height": "28vw"}, id="parameter-pie")
+                ], id="level1",
+                    className="level1"
                 ),
-                html.Div(children=[], id="level3", className="card"),
+                html.Div(children=[
+                    html.P("Level 2"),
+                    # dash_table.DataTable(id="level2-table")
+                ],
+                    className="level2",
+                    id="level2"
+                ),
+                html.Div(children=[
+                    html.P("level 3")
+                ], id="level3", className="level3"),
             ],
-            style={'display': 'flex', 'flex-direction': 'row'},
-            #id="shm-div",
+            className="wrapper12",
+            id="shm-div",
         )
     ],
 )
 
 
+def update_timeline(sensors, sensor_times):
+    tz = pytz.timezone('UTC')
+
+    # find all start and end times.
+    parameters = []
+    start_times = []
+    stop_times = []
+    for i in range(0, len(sensors)):
+        parameters.append(sensors[i]["name"])
+        start_times.append(datetime.fromtimestamp(round(sensor_times[i]["statistics"]["min"], 2)))
+        stop_times.append(datetime.fromtimestamp(round(sensor_times[i]["statistics"]["max"], 2)))
+
+    # Create a list of scatter traces for each parameter
+    data = []
+    for i in range(len(parameters)):
+        # generate string that gets shown on hover. index is :-4 to exclude irrelevant decimal places
+        tooltip_string = 'Parameter: {}, <br> Start time: {}, Stop time: {}'.format(
+            parameters[i],
+            start_times[i].strftime("%H:%M:%S.%f")[:-4],
+            stop_times[i].strftime("%H:%M:%S.%f")[:-4])
+
+        trace = go.Scatter(
+            x=[start_times[i], stop_times[i]],
+            y=[0, 0],
+            mode='markers',
+            name=parameters[i],
+            text=[tooltip_string, tooltip_string],  # display for both values
+            marker=dict(
+                color=['green', 'red'],
+                symbol="x",
+                size=8,
+            ),
+            showlegend=False
+        )
+        data.append(trace)
+
+    # Define layout
+    layout = go.Layout(
+        title='Start and Stop Times for Different Parameters',
+        xaxis=dict(title='Time', showgrid=False),
+        yaxis=dict(showgrid=False,
+                   zeroline=True, zerolinecolor='black', zerolinewidth=3,
+                   showticklabels=False),
+        hovermode='closest',
+        height=200,
+        plot_bgcolor='white'
+    )
+
+    # Create a figure
+    figure = go.Figure(data=data, layout=layout)
+
+    return figure
+
+
 @app.callback(
+    Output("graph-timeline", "figure"),
     Output("parameter-pie", "figure"),
     Input("flight-drop", "value"),
     State("instance-drop", "value"),
@@ -109,10 +175,19 @@ app.layout = html.Div(
 def update_shm(flight_id, instance_name):
     client = Client.from_instance_name(instance_name)
     # pie = go.Figure(data=go.Pie(None))
-    fig = px.pie(None)
+    lvl1_pie = px.pie(None)
+    timeline = {}
     if flight_id:
         shm = client.search({"id": flight_id})[0]["user_tags"].get("SHM")
         sensors = client.search({"parent": flight_id, "type": "series", "is_basis_series": False})
+        sensor_times = client.search({"parent": flight_id, "type": "series", "is_basis_series": True})
+        # transform sensor_times into dict of series connector id
+        sensor_times_scid = {sensor["series_connector_id"]: sensor for sensor in sensor_times}
+        sensor_times = [sensor_times_scid[sensor["series_connector_id"]] for sensor in sensors]
+
+        # plot start and stop data by using x's. Green for start. Red for start. upon hovering show tooltip name
+        timeline = update_timeline(sensors, sensor_times)
+
         if shm:
             sensors_missing = shm.get("Missing parameters")
             # total number of sensors
@@ -125,7 +200,7 @@ def update_shm(flight_id, instance_name):
                 data["parent"].append("Sensors Missing")
                 data["value"].append(1)
 
-            fig = px.sunburst(
+            lvl1_pie = px.sunburst(
                 data,
                 names='character',
                 parents='parent',
@@ -150,7 +225,7 @@ def update_shm(flight_id, instance_name):
 
         else:  # make shm disappear and show flight stats maybe?
             pass
-    return fig
+    return timeline, lvl1_pie
 
 
 @app.callback(
