@@ -61,7 +61,7 @@ body {
     height: 48px;
 }
 
-.Select--single>.Select-control .Select-value,
+.Select--single > .Select-control .Select-value,
 .Select-placeholder {
     line-height: 48px;
 }
@@ -76,17 +76,30 @@ body {
     color: #079A82;
 }
 
-.wrapper12{
-    margin-right: auto;
-    margin-left: auto;
-    max-width: 1024px;
-    padding-right: 10px;
-    padding-left: 10px;
-    margin-top: 32px;
-    display: flex;
-    justify-content: space-evenly;
+.level1 {
+    grid-area: level1;
+    border: 1px solid #ccc;
 }
-.level1{
-    max-width:250px;
-    max-height: 250px;
+
+.level2 {
+    grid-area: level2;
+    border: 1px solid #ccc;
 }
+
+.level3 {
+    grid-area: level3;
+    border: 1px solid #ccc;
+}
+
+.wrapper12 {
+    padding: 20px 20px;
+    height: 50vh;
+    display: grid;
+    grid-template-column: 1fr 2fr;
+    grid-template-rows: 2fr 2fr;
+    grid-template-areas:
+    "level1 level2"
+    "level3 level3";
+    border: 1px solid #ccc;
+}
+

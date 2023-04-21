@@ -74,7 +74,6 @@ class check_logic():
         flight_list = self.instance.search({"id": collection_id})
         # get parameter reference list from imcexp
         if flight_list[0]["user_tags"]["registration"] == "D-BDLR":
-            config = {}
             config = config_from_istar_flight(flight_list[0]["name"])
         else:
             print("unknown aircraft")
@@ -82,8 +81,7 @@ class check_logic():
 
         missing_parameters, flight_parameters = self.layer_one_from_stash(collection_id, config.keys())
         print("level 1 check complete")
-        # level_2_notes = self.layer_two_from_stash(collection_id, config)
-        level_2_notes = {}
+        level_2_notes = self.layer_two_from_stash(collection_id, config)
         print("level 2 check complete")
         # upload to stash. append to user_tags:SHM
         shm_dict = {"missing parameters": missing_parameters,
@@ -91,6 +89,8 @@ class check_logic():
         self.update_shm_usertags(collection_id, shm_dict)
         # TODO: Level 3 only with parameters that are not wonky
         self.level_3(flight_parameters, config)
+
+        """
         # Kovarianz/Korrelation des generierten und tatsächlichen signals vergleichen
         # download imar vs ascb gps and compare
         parameter_down = {
@@ -114,7 +114,7 @@ class check_logic():
             parameter_data.update({key: [self.download_series(flight_parameters[value]), key]})
         # resample and into dataframe
         df = data_dict_to_dataframe(parameter_data, 25)
-
+        """
         print("upload complete")
 
     def update_shm_usertags(self, id, shm_dict):
