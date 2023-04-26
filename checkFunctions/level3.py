@@ -218,7 +218,6 @@ def detect_suspicious_behaviour(value, mean, stdev, factor=6)->float:
     :return:
     :rtype:
     """
-    out_value = 0
     # check if value is outside standard deviation and if it is also not None
     if pd.notna(value) and value > (mean + factor * stdev) or value < (mean - factor * stdev) and stdev / mean > 0.01:
         # define signal to noise ratio limit. E.g. snr = stdev/mean >! 0.01
@@ -228,7 +227,7 @@ def detect_suspicious_behaviour(value, mean, stdev, factor=6)->float:
         out_value = 1.0
     else:
         out_value = 0
-    return out_value
+    return float(out_value)
 
 
 def compare_reference_to_signal(reference, signal):

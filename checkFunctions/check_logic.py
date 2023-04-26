@@ -1,8 +1,11 @@
+import time
+
 from Parsing import parseIMCEXP as Rsi
 import pandas as pd
 import checkFunctions.sendMail as sendMail
 from config.dcode_busDefinitions import labels_inetx
-from Parsing.parseFunctions import get_variables_from_database, utc_from_timestamp, data_dict_to_dataframe
+from Parsing.parseFunctions import get_variables_from_database, utc_from_timestamp, data_dict_to_dataframe, \
+    get_mean_noise
 from stashclient.client import Client
 from Parsing.parseIMCEXP import config_from_istar_flight
 import pandas as pd
@@ -11,6 +14,7 @@ import matplotlib.pyplot as plt
 from checkFunctions.level3 import altitude_from_pressure, short_time_statistics, fuse_redundant_sensors, \
     compare_reference_to_signal, normalize_unit
 import numpy as np
+from check_config import level2_checks
 
 ft2m = 0.3048
 m2ft = 1 / (ft2m)
@@ -68,6 +72,8 @@ class check_logic():
         :return:
         :rtype:
         """
+        # load from external file
+        check_config = level2_checks
         # get stash Collection name
         self.instance = Client.from_instance_name(instance)
         # get parameter list from stash
@@ -77,11 +83,11 @@ class check_logic():
             config = config_from_istar_flight(flight_list[0]["name"])
         else:
             print("unknown aircraft")
-            return
+            return 0
 
         missing_parameters, flight_parameters = self.layer_one_from_stash(collection_id, config.keys())
         print("level 1 check complete")
-        level_2_notes = self.layer_two_from_stash(collection_id, config)
+        level_2_notes = self.layer_two_from_stash(collection_id, config, check_config)
         print("level 2 check complete")
         # upload to stash. append to user_tags:SHM
         shm_dict = {"missing parameters": missing_parameters,
@@ -91,7 +97,7 @@ class check_logic():
         self.level_3(flight_parameters, config)
 
         """
-        # Kovarianz/Korrelation des generierten und tatsächlichen signals vergleichen
+        # compare Covariance/Correlation of fused and actual signal
         # download imar vs ascb gps and compare
         parameter_down = {
             "baro": "ASCB_ADS_Ads1ADA_airData50msec_baroAltitude1_o",
@@ -228,33 +234,27 @@ class check_logic():
     ╚══════╝╚══════╝░░░╚═╝░░░╚══════╝╚══════╝  ╚══════╝
     """
 
-    def update_notes(self, notes, check_series, min_range, max_range, warning_string, parameter_name):
+    def layer_two_from_stash(self, collection_id, config, check_config):
         """
-        cleanup function. Checks whether values are in range and updates the notes section of SHM to display any
-        anomalies
-        """
-        values_exceeded = check_series[~check_series.between(min_range, max_range)]
-        if len(values_exceeded) > 0:
-            notes[warning_string].update({parameter_name: {
-                "occurences": self.pandas_to_list(values_exceeded),
-                "range": {"min": min_range, "max": max_range}}})
 
-    def layer_two_from_stash(self, collection_id, config):
+        :param collection_id: stash hex-id of flight/collection
+        :type collection_id:
+        :param config: merged config (imcexp+excel) for all parameters
+        :type config:
+        :param check_config: config dictionary for checks that are about to be performed
+        :type check_config:
+        :return: dictionary format containing fault report
+        :rtype:
+        """
         # parameter id under usertags->name->value
         # LEVEL 2
         parameter_list = self.instance.search(
             {"parent": collection_id, "type": "series", "is_basis_series": False})
-        # check definitions here
-        checks = {"physical": {"error_tag": "physical values out of range",
-                               "min": "physical range min",
-                               "max": "physical range max"},
-                  "amplitude": {"error_tag": "amplitude out of range",
-                                "min": "amplitude min",
-                                "max": "amplitude max"}}
-        notes = {value["error_tag"]: {} for value in checks.values()}
+
+        notes = {value["error_tag"]: {} for value in check_config.values()}
         # transform into column names
         column_names = []
-        for value in checks.values():
+        for value in check_config.values():
             column_names.extend([value.get("min"), value.get("max")])
 
         progress_bar = tqdm(parameter_list)
@@ -266,26 +266,19 @@ class check_logic():
             if any(level_2_check in list(parameter_config.keys()) for level_2_check in column_names):
                 # download parameter data into pandas series
                 series = self.pandas_from_stash(parameter["id"])
-                for check in checks.values():
-                    range = [parameter_config.get(check["min"]), parameter_config.get(check["max"])]
-                    if any(range):
-                        self.update_notes(notes, series, range[0], range[1], check["error_tag"], parameter_name)
+                for check in check_config.values():
+                    limits = [parameter_config.get(check["min"]), parameter_config.get(check["max"])]
+                    if any(limits):  # if parameter limits are defined in config file
+                        if check.get("function") is not None:
+                            check_series = check.get("function")(series)
+                        else:
+                            check_series = series
+                        values_exceeded = check_series[~check_series.between(limits[0], limits[1])]
+                        if len(values_exceeded) > 0:  # if any occurences have been found
+                            notes[check["error_tag"]].update({parameter_name: {
+                                "occurences": self.pandas_to_list(values_exceeded),
+                                "limits": {"min": limits[0], "max": limits[1]}}})
 
-                """ how does get_mean_noise() still work?????
-                # check range
-                min_range, max_range = parameter_config.get("physical range min"), \
-                                       parameter_config.get("physical range max")
-                if max_range is not None and min_range is not None:
-                    self.update_notes(notes, series, min_range, max_range,
-                                      "Physical Values out of Range", parameter_name)
-                # check noise and get list with time, where values were exceeded
-                min_amplitude, max_amplitude = parameter_config.get("amplitude min"), \
-                                               parameter_config.get("amplitude max")
-                if min_amplitude is not None and max_amplitude is not None:
-                    mean_noise = get_mean_noise(series)[0]
-                    self.update_notes(notes, mean_noise, min_amplitude, max_amplitude,
-                                      "Amplitude out of range", parameter_name)
-                """
         return notes
 
     """
@@ -316,44 +309,47 @@ class check_logic():
                 # add parameters to correlation dictionary
                 correlation_dict[parameter_value.get("tag")].update({parameter_key: parameter_value})
 
-        self.level3_baro(correlation_dict, parameter_list, config)
-
-        print("level 3")
-
-
-    def level3_baro(self, correlation_dict, parameter_list, config):
         # get altitudes that are tagged with "barometric altitude"
         # dont get altitudes that are tagged with "pressure altitude". seem useless and redundant with barometric altitude
         # "static pressure" needs "reference altitude" parameter name directly within its metadata
 
-        df_altitudes = pd.DataFrame()
-
-        # static pressure to barometric altitude
-        for element in correlation_dict["static pressure"].keys():
-            # download pressure and reference pressure
-            pressure = self.download_series(parameter_list[element], convert_to_SI=True)
-            reference_pressure = self.download_series(parameter_list[config[element]["reference"]], convert_to_SI=True)
-            df = data_dict_to_dataframe(
-                {"pressure": [pressure, "pressure"], "reference": [reference_pressure, "reference"]}, 25)
-            # convert to barometric altitude
-            altitude = altitude_from_pressure(df["pressure"], df["reference"])
-            df_altitudes[element] = altitude
-
-        for element in correlation_dict["barometric altitude"].keys():
-            altitude = self.download_series(parameter_list[element], convert_to_SI=True)
-            df = data_dict_to_dataframe(
-                {"altitude": [altitude, "altitude"]}, 25)
-            df_altitudes[element] = df["altitude"]
-
-        # join barometric altitudes
-        fused_altitude = fuse_redundant_sensors(df_altitudes)
-
-        # compare fused to single sensors
-        for altitude in list(df_altitudes.columns):
-            # compare and upload info to sensor user_tags SHM
-            report = compare_reference_to_signal(fused_altitude, df_altitudes[altitude])
-            # upload
-            report["suspicious values"] = self.pandas_to_list(report["suspicious values"])
-            self.update_shm_usertags(parameter_list[altitude], report)
+        correlations_config = {
+            "altitudes": {"static pressure": {"function": altitude_from_pressure, "reference_value": True},
+                          "barometric altitude": {"reference_value": True},
+                          "pressure altitude": {"reference_value": False},
+                          "orthometric altitude":{}}}
 
 
+        # iterate through values representing the same feature
+        for principal_feature in correlations_config.keys():
+            df_same_parameters = pd.DataFrame() #pf-principal feature
+            # operate on each different subtag of a feature
+            for tag in correlations_config[principal_feature].keys():
+                # for each parameter that is tagged with the same value
+                for parameter in correlation_dict[tag].keys():
+                    series = self.download_series(parameter_list[parameter], convert_to_SI=True)
+                    # if tag contains a reference value --> collect reference value
+                    if correlations_config[principal_feature][tag].get("reference_value"):
+                        reference_series = self.download_series(
+                            parameter_list[config[parameter]["reference"]],
+                            convert_to_SI=True)
+                        df = data_dict_to_dataframe(
+                            {"series": [series, "series"], "reference": [reference_series, "reference"]}, 25)
+                    else:
+                        df = data_dict_to_dataframe(
+                            {"series": [series, "series"]}, 25)
+                    if correlations_config[principal_feature][tag].get("function") is not None:
+                        df_same_parameters[parameter] = correlations_config[principal_feature][tag]["function"](df["series"], df["reference"])
+                    else:
+                        df_same_parameters[parameter] = df["series"]
+            # fuse all sensor of the same feature/principal feature
+            fused = fuse_redundant_sensors(df_same_parameters)
+            for parameter in list(df_same_parameters.columns):
+                # compare and upload info to sensor user_tags SHM
+                report = compare_reference_to_signal(fused, df_same_parameters[parameter])
+                # upload
+                report["suspicious values"] = self.pandas_to_list(report["suspicious values"])
+                self.update_shm_usertags(parameter_list[parameter], report)
+
+
+        print(time.ctime() + "\tLevel 3 completed")

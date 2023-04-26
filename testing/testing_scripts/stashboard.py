@@ -8,7 +8,7 @@ import pytz
 import plotly.graph_objs as go
 from dash import dash_table
 from testing.testing_scripts.stashboard_layout import get_layout
-from testing.testing_scripts.stashboard_functions import update_timeline, update_level2, update_level_1
+from testing.testing_scripts.stashboard_functions import update_timeline, update_level2, update_level_1, update_level3
 
 # first: instance
 instances = {"Production": "prod", "Development": "dev"}
@@ -27,15 +27,20 @@ app.layout = get_layout(app)
     Output("graph-timeline", "figure"),
     Output("level1", "children"),
     Output("level2", "children"),
+    Output("level3", "children"),
+    Output("stash-link", "hidden"),
     Input("flight-drop", "value"),
-    State("instance-drop", "value"),
+    Input("instance-drop", "value"),
 )
 def update_shm(flight_id, instance_name):
     client = Client.from_instance_name(instance_name)
-    lvl1_html = {}
     timeline = {}
+    lvl1_html = {}
     lvl2_html = {}
+    lvl3_html = {}
+    link_disabled = True
     if flight_id:
+        link_disabled = False
         shm = client.search({"id": flight_id})[0]["user_tags"].get("SHM")
 
         sensors = client.search({"parent": flight_id, "type": "series", "is_basis_series": False})
@@ -49,14 +54,14 @@ def update_shm(flight_id, instance_name):
         timeline = update_timeline(sensors, sensor_times)
 
         if shm:
-            lvl1_html = update_level_1(shm, sensors)
             # and list missing sensors
+            lvl1_html = update_level_1(shm, sensors)
             # level 2
             lvl2_html = update_level2(shm, sensors, sensor_times)
-
+            lvl3_html = update_level3(shm, sensors, sensor_times)
         else:  # make shm disappear and show flight stats maybe?
             pass
-    return timeline, lvl1_html, lvl2_html
+    return timeline, lvl1_html, lvl2_html, lvl3_html, link_disabled
 
 
 @app.callback(
@@ -82,5 +87,19 @@ def update_flights(project_id, instance_name):
     return flights, "Select.."
 
 
+@app.callback(
+    Output("stash-link", "href"),
+    Input("stash-link", "hidden"),
+    State("instance-drop", "value"),
+    State("project-drop", "value"),
+    State("flight-drop", "value"),
+)
+def update_link(hidden, instance, project_id, flight_id):
+    flightlink = ""
+    if instance is not None and project_id is not None and flight_id is not None:
+        flightlink = r"https://" + instance + r".stash.dlr.de/projects/" + project_id + r"/collections/" + flight_id
+    return flightlink
+
+
 if __name__ == "__main__":
-    app.run_server(debug=True)
+    app.run(debug=True, use_reloader=False)

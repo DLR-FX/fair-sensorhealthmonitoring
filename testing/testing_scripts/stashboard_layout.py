@@ -19,9 +19,7 @@ def get_layout(app):
                     html.P(children=[html.Img(src=app.get_asset_url("DigECat_stash.png"),
                                               style={'height': '10%', 'width': '10%'})],
                            className="header-emoji"),
-                    html.H1(
-                        children="STASHBOARD", className="header-title",
-                    ),
+                    html.H1(children="STASHBOARD", className="header-title"),
                 ],
                 className="header",
             ),
@@ -58,6 +56,7 @@ def get_layout(app):
                             className="dropdown",
                         )
                     ]),
+                    html.A(id="stash-link", children="View in skystash", hidden=True, target="_blank")
                 ],
                 className="menu",
             ),
@@ -78,7 +77,6 @@ def get_layout(app):
                     ),
                     html.Div(children=[
                         html.P("Level 2"),
-                        # dash_table.DataTable(id="level2-table")
                     ],
                         className="level2",
                         id="level2"

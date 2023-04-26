@@ -7,6 +7,8 @@ from dash import dcc, html
 import pandas as pd
 from plotly.subplots import make_subplots
 import numpy as np
+from Parsing.parseFunctions import timestamp_from_utc
+from dateutil import parser
 
 
 def update_timeline(sensors, sensor_times):
@@ -45,16 +47,46 @@ def update_timeline(sensors, sensor_times):
         )
         data.append(trace)
 
+    # create dummy traces for legend
+    trace = go.Scatter(
+        x=[None],
+        y=[None],
+        mode='markers',
+        name="Start",
+        marker=dict(
+            color=['green'],
+            symbol="x",
+            size=8,
+        ),
+        showlegend=True
+    )
+    data.append(trace)
+    trace = go.Scatter(
+        x=[None],
+        y=[None],
+        mode='markers',
+        name="Stop",
+        marker=dict(
+            color=['red'],
+            symbol="x",
+            size=8,
+        ),
+        showlegend=True
+    )
+    data.append(trace)
+
     # Define layout
     layout = go.Layout(
-        title='Start and Stop Times for different Parameters',
+        title='Start and Stop Times for Parameter Recording',
         xaxis=dict(title='Time', showgrid=False),
         yaxis=dict(showgrid=False,
                    zeroline=True, zerolinecolor='black', zerolinewidth=3,
                    showticklabels=False),
         hovermode='closest',
         height=200,
-        plot_bgcolor='white'
+        plot_bgcolor='white',
+        legend=dict(yanchor="bottom", y=1.2,
+                    xanchor="right", x=0.99)
     )
 
     # Create a figure
@@ -68,56 +100,6 @@ def update_level_1(shm, sensors):
     # children = [html.P("Level 1")]
 
     sensors_missing = shm.get("missing parameters")
-
-    """
-    # total number of sensors
-    data = dict(
-        character=["Sensors Missing", "Sensors Present"],
-        parent=["", ""],
-        value=[len(sensors_missing), len(sensors)])
-    for element in sensors_missing:
-        data["character"].append(element)
-        data["parent"].append("Sensors Missing")
-        data["value"].append(1)
-
-    lvl1_pie = px.sunburst(
-        data,
-        names='character',
-        parents='parent',
-        values='value',
-    )
-
-    dict_sensors = {element["name"]: "sensor present" for element in sensors}
-    dict_sensors_missing = {element: "sensor missing" for element in shm.get("missing parameters")}
-    dict_sensors.update(dict_sensors_missing)
-    sensor_df = pd.DataFrame(index=dict_sensors.keys(),
-                             data=dict_sensors.values())
-    pie = px.pie(sensor_df, names=0, title="missing parameters", color=0,
-                 color_discrete_map={"sensor present": "green",
-                                     "sensor missing": "red"})
-
-    pie.update_traces(hoverinfo='label+percent', textinfo='value')
-    # Define the list data as a dictionary of lists
-
-    ratio = "Parameters available: " + str(len(sensors)) + "/" + str(len(sensors) + len(sensors_missing))
-    #children.append(html.P(ratio))
-    data = {
-        'Item': ['Item 1', 'Item 2', 'Item 3'],
-        'Description': ['Description 1', 'Description 2', 'Description 3'],
-        'Quantity': [10, 20, 30]
-    }
-
-    # Display the list as a table
-    table = dash_table.DataTable(
-        columns=[{'name': col, 'id': col} for col in data.keys()],
-        data=data,
-        sort_action='native',
-        filter_action='native',
-        page_size=10
-    )
-    # program the pie or something here
-    figure = {}
-    """
     speedo = level1_speedo(sensors_missing, sensors)
     children.append(speedo)
     return children
@@ -126,17 +108,16 @@ def update_level_1(shm, sensors):
 def level1_speedo(missing_sensors, present_sensors):
     working = len(present_sensors)
     missing_string = "<br>".join(missing_sensors)
-    ent_min = 0
-    ent_max = len(present_sensors) + len(missing_sensors)
-    ent_tick_60 = int((ent_max - ent_min) * 0.6 + ent_min)
-    ent_tick_90 = int((ent_max - ent_min) * 0.9 + ent_min)
+    param_min = 0
+    param_max = len(present_sensors) + len(missing_sensors)
+    param_1std = int((param_max - param_min) * 0.68 + param_min)
+    param_2std = int((param_max - param_min) * 0.95 + param_min)
     figure = dcc.Graph(id="speedometer",
                        config=dict(displayModeBar=False, responsive=True),
                        style={"width": "100%", "height": "100%"},
-
                        figure=go.Figure(
                            layout=go.Layout(
-                               title={"text": "Parameter Status"},
+                               title={"text": "Parameter Availability"},
                                annotations=[{"text": "             ",
                                              "hovertext": missing_string,
                                              "showarrow": False,
@@ -147,103 +128,67 @@ def level1_speedo(missing_sensors, present_sensors):
                                mode="gauge+number",
                                value=working,
                                gauge={
-                                   'axis': {'range': [ent_min, ent_max],
-                                            'tickvals': [ent_min, ent_tick_60, ent_tick_90, ent_max]},
+                                   'axis': {'range': [param_min, param_max],
+                                            # 'tickvals': [ent_min, ent_tick_60, ent_tick_90, ent_max]
+                                            },
                                    'steps': [
-                                       {'range': [ent_min, ent_tick_60], 'color': "red"},
-                                       {'range': [ent_tick_60, ent_tick_90], 'color': "yellow"},
-                                       # {'range': [ent_tick_90, ent_max], 'color': "green"}
+                                       {'range': [param_min, param_1std], 'color': "red"},
+                                       {'range': [param_1std, param_2std], 'color': "yellow"},
                                    ],
-                                   # 'threshold': {
-                                   #    'line': {'color': "black", 'width': 4},
-                                   #    'thickness': 0.75,
-                                   #    'value': working
-                                   # },
-                                   # 'bar': {'color': "grey"}
                                },
-                               number={'suffix': "/" + str(ent_max)},
+                               number={'suffix': "/" + str(param_max)},
                            )
                        )
                        )
-
     return figure
 
 
 def update_level2(shm, sensors, times):
     # try plotting errors (limit|amplitude) per minute over the whole flight
 
-
     # create scatter plot for each parameter on the time axis. plot out of limit as red. Out of amplitude as blue
     ssb = shm.get("single sensor behaviour")
     fig = go.Figure()
+
+    # plot each error
     for error in ssb.keys():
+        # transform data into dictionary of times and entries of variables
+        time_dict = {}
+        for parameter, value in ssb[error].items():
+            # this is inefficient af
+            for time in list(value["occurences"].keys()):
+                time_dict.setdefault(parser.parse(time), []).append(parameter)
+        """ # optimization strategy?
+        inv_map = {}
+        for k, v in ssb[error].items():
+            inv_map[v] = inv_map.setdefault(list(v["occurences"].keys()), []).append(k)
+        """
+
+        # sort
+        time_dict = {k: time_dict[k] for k in sorted(time_dict)}
+
+        # fill in empty values with 0.
+
         # isolate data for x-axis:time and y-axis
-        fig.add_trace(go.Scatter(x=1, y=0, mode="lines", name=error))
+        fig.add_trace(go.Scatter(x=list(time_dict.keys()),
+                                 y=[len(element) for element in time_dict.values()],
+                                 mode="lines",
+                                 text=["<br>".join(dot) for dot in list(time_dict.values())],
+                                 name=error,
+                                 showlegend=True))
 
+    # add parameters to plot for represents=[height] on a second axis
+    # represents["height"]
 
-
-
-
-    error_types = list(ssb.keys())
-
+    # Define layout
+    layout = go.Layout(
+        title='Parameter Errors',
+        xaxis=dict(title='Time'),
+        yaxis=dict(title="Detected Errors"),
+    )
+    fig.update_layout(layout)
     # get collective errors per second
-
-    #plot per single sensor behaviour. then collect amount of key entries
-
-    # collect params
-    params = []
-    for error in error_types:
-        params.extend(list(ssb[error].keys()))
-    # delete duplicates
-    params = list(dict.fromkeys(params))
-
-    # Create a figure object with subplots
-    fig = make_subplots(rows=len(params), cols=2, shared_xaxes=True)
-
-    # Loop through each parameter and plot the timeline and accumulated errors
-    for i, param in enumerate(params):
-        for error in error_types:
-            if ssb[error].get(param) is not None:
-                occurence_dict = ssb[error][param]["occurences"]
-                # Plot the timeline of parameter values
-                fig.add_trace(
-                    go.Scatter(
-                        x=list(occurence_dict.keys()),
-                        y=[i] * len(params),
-                        mode='markers',
-                        name=param,
-                        marker=dict(size=10, color='black'),
-                        showlegend=False
-                    ),
-                    row=i + 1,
-                    col=1,
-                )
-                # create indicator for scalar number of errors in right subplot
-                """
-                # Plot the accumulated number of errors
-                fig.add_trace(
-                    go.Scatter(
-                        x=list(occurence_dict.keys()),
-                        y=np.cumsum(list(occurence_dict.keys())),
-                        mode='lines',
-                        name='Cumulative Errors',
-                        line=dict(width=2)
-                    ),
-                    row=i + 1,
-                    col=2
-                )
-                """
-
-        # Add y-axis label for the timeline subplot
-        fig.update_yaxes(
-            title_text=param,
-            row=i + 1,
-            col=1
-        )
-
-    # Add x-axis label and title for the entire figure
-    fig.update_xaxes(title_text='Timestamp', row=len(params), col=1)
-    fig.update_layout(title='Timeline of Parameters and Accumulated Errors')
+    # show logarithmic hbars for each sensor with cumulative error sorting. Show top 5 sensors only.
 
     figure = dcc.Graph(figure=fig,
                        config=dict(responsive=True),
@@ -251,3 +196,13 @@ def update_level2(shm, sensors, times):
                        )
 
     return figure
+
+
+def update_level3(shm, sensors, sensor_times):
+    # find sensors with shm
+    shm3 = {}
+    for sensor in sensors:
+        if sensor["user_tags"].get("SHM") is not None:
+            shm3.update({sensor["user_tags"]["Name"]:sensor["user_tags"]["SHM"]})
+
+    pass
