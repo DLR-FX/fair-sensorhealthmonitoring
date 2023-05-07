@@ -45,19 +45,20 @@ def update_shm(flight_id, instance_name):
 
         sensors = client.search({"parent": flight_id, "type": "series", "is_basis_series": False})
         sensor_times = client.search({"parent": flight_id, "type": "series", "is_basis_series": True})
-        if len(sensors) > len(sensor_times):
-            # transform sensor_times into dict of series connector id
-            sensor_times_scid = {sensor["series_connector_id"]: sensor for sensor in sensor_times}
-            sensor_times = [sensor_times_scid[sensor["series_connector_id"]] for sensor in sensors]
+        # transform sensor_times into dict of series connector id
+        sensor_times_scid = {sensor["series_connector_id"]: sensor for sensor in sensor_times}
+        sensor_times = [sensor_times_scid[sensor["series_connector_id"]] for sensor in sensors]
 
         # plot start and stop data by using x's. Green for start. Red for stop. upon hovering show tooltip name
         timeline = update_timeline(sensors, sensor_times)
 
         if shm:
             # and list missing sensors
-            lvl1_html = update_level_1(shm, sensors)
+            if shm.get("missing parameters") is not None:
+                lvl1_html = update_level_1(shm, sensors)
             # level 2
-            lvl2_html = update_level2(shm, sensors, sensor_times)
+            if shm.get("single sensor behaviour") is not None:
+                lvl2_html = update_level2(shm, sensors, sensor_times)
             lvl3_html = update_level3(shm, sensors, sensor_times)
         else:  # make shm disappear and show flight stats maybe?
             pass

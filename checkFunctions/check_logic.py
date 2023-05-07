@@ -12,9 +12,9 @@ import pandas as pd
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from checkFunctions.level3 import altitude_from_pressure, short_time_statistics, fuse_redundant_sensors, \
-    compare_reference_to_signal, normalize_unit
+    compare_reference_to_signal, normalize_unit, baro_to_gnss, ellipsoid_to_orthometric, gnss_speed
 import numpy as np
-from check_config import level2_checks
+from check_config import check_config
 
 ft2m = 0.3048
 m2ft = 1 / (ft2m)
@@ -66,68 +66,27 @@ class check_logic():
         # return as dictionary
         return series.to_dict()
 
-    def check_stash_data(self, collection_id, instance="dev"):
-        """
-        :param collection: collection name
-        :return:
-        :rtype:
-        """
-        # load from external file
-        check_config = level2_checks
-        # get stash Collection name
-        self.instance = Client.from_instance_name(instance)
-        # get parameter list from stash
-        flight_list = self.instance.search({"id": collection_id})
-        # get parameter reference list from imcexp
-        if flight_list[0]["user_tags"]["registration"] == "D-BDLR":
-            config = config_from_istar_flight(flight_list[0]["name"])
-        else:
-            print("unknown aircraft")
-            return 0
+    def reset_parameter_shm(self, id):
+        # find all parameters from collection
+        parameters = self.instance.search({"parent": id, "is_basis_series":False})
 
-        missing_parameters, flight_parameters = self.layer_one_from_stash(collection_id, config.keys())
-        print("level 1 check complete")
-        level_2_notes = self.layer_two_from_stash(collection_id, config, check_config)
-        print("level 2 check complete")
-        # upload to stash. append to user_tags:SHM
-        shm_dict = {"missing parameters": missing_parameters,
-                    "single sensor behaviour": level_2_notes}
-        self.update_shm_usertags(collection_id, shm_dict)
-        # TODO: Level 3 only with parameters that are not wonky
-        self.level_3(flight_parameters, config)
+        # get parameters that contain SHM usertags
+        parameters_filtered = [parameter for parameter in parameters
+                               if parameter["user_tags"].get("SHM") is not None]
 
-        """
-        # compare Covariance/Correlation of fused and actual signal
-        # download imar vs ascb gps and compare
-        parameter_down = {
-            "baro": "ASCB_ADS_Ads1ADA_airData50msec_baroAltitude1_o",
-            "p_static": "ASCB_ADS_Ads1ADA_airData50msec_staticPressure_o",
-            "p_ref": "ASCB_ADS_Ads1ADA_airData50msec_mbBaroCorrection1_o",
-            "baro_uncorr": "ASCB_ADS_Ads1ADA_airData50msec_pressureAltitude_o",
-            "p_static_nose": "NOSE_StaticPressure"
-        }
-        parameter_two = {
-            "pressure_alt": "ASCB_ADS_Ads1ADA_airData50msec_pressureAltitude_o",
-            "baro_alt": "ASCB_ADS_Ads1ADA_airData50msec_baroAltitude1_o",
-            "static pressure": "ASCB_ADS_Ads1ADA_airData50msec_staticPressure_o",
-            "baro_ref": "ASCB_ADS_Ads1ADA_airData50msec_mbBaroCorrection1_o",
-            "gps": "ASCB_GPS_Gps1aGps429_gps50msec429_altitude_o",
-            "cas": "ASCB_ADS_Ads1ADA_airData50msec_calibratedAirspeed_o"
-        }
-
-        parameter_data = {}
-        for key, value in parameter_down.items():
-            parameter_data.update({key: [self.download_series(flight_parameters[value]), key]})
-        # resample and into dataframe
-        df = data_dict_to_dataframe(parameter_data, 25)
-        """
-        print("upload complete")
+        # pop SHM usertags
+        for parameter in parameters_filtered:
+            parameter["user_tags"].pop("SHM")
+            # reapply parameters that had SHM user_tags
+            self.instance.update(parameter["id"], {"user_tags":parameter["user_tags"]})
 
     def update_shm_usertags(self, id, shm_dict):
         """
         receive
         -collection, series or project id
         -dictionary containing elements of Sensor Health Monitoring JSON-dict
+        :param cleanup: If true reset SHM dict to wipe previous clutter
+        :type cleanup: Bool
         :param id:
         :type id:
         :param shm_dict:
@@ -136,7 +95,12 @@ class check_logic():
         :rtype:
         """
         flight_list = self.instance.search({"id": id})
-        flight_list[0]["user_tags"].update({"SHM": shm_dict})
+        # update SHM dict and to allow multiple partial updates for SHM dict
+        if flight_list[0]["user_tags"].get("SHM") is None:
+            flight_list[0]["user_tags"].update({"SHM": shm_dict})
+        else:
+            flight_list[0]["user_tags"]["SHM"].update(shm_dict)
+
         self.instance.update(id, {"user_tags": flight_list[0]["user_tags"]})
 
     def download_series(self, id, convert_to_SI=False):
@@ -182,6 +146,46 @@ class check_logic():
 
     def set_limits(self):
         pass
+
+    def check_stash_data(self, collection_id, instance="dev"):
+        """
+        :param collection: collection name
+        :return:
+        :rtype:
+        """
+        # load from external file
+
+        check_config_2 = check_config["level 2"]
+        check_config_3 = check_config["level 3"]
+        # get stash Collection name
+        self.instance = Client.from_instance_name(instance)
+        self.collection_id = collection_id
+        # get parameter list from stash
+        flight_list = self.instance.search({"id": collection_id})
+        # get parameter reference list from imcexp
+        if flight_list[0]["user_tags"]["registration"] == "D-BDLR":
+            config = config_from_istar_flight(flight_list[0]["name"])
+        else:
+            print("unknown aircraft")
+            return 0
+        self.name_aircraft = flight_list[0]["user_tags"]["registration"]
+
+
+        # cleanup shm user_tags in series from previous iterations
+        self.reset_parameter_shm(collection_id)
+
+        missing_parameters, flight_parameters = self.layer_one_from_stash(collection_id, config.keys())
+        self.update_shm_usertags(collection_id, {"missing parameters": missing_parameters})
+        print("level 1 check complete")
+
+        if False:
+            level_2_notes = self.layer_two_from_stash(collection_id, config, check_config_2)
+            self.update_shm_usertags(collection_id, {"single sensor behaviour": level_2_notes})
+            print("level 2 check complete")
+
+        # TODO: Level 3 only with parameters that are not wonky
+        self.level_3(flight_parameters, config, check_config_3)
+        print("upload complete")
 
     """
     ██╗░░░░░███████╗██╗░░░██╗███████╗██╗░░░░░  ░░███╗░░
@@ -290,7 +294,7 @@ class check_logic():
     ╚══════╝╚══════╝░░░╚═╝░░░╚══════╝╚══════╝  ╚═════╝░
     """
 
-    def level_3(self, parameter_list, config):
+    def level_3(self, parameter_list, config, check_config):
         # TODO: create routine for each parameter tag
         # decide between direct/indirect parameters
 
@@ -300,7 +304,7 @@ class check_logic():
         taglist = ["barometric altitude", "pressure altitude", "static pressure", "ellipsoid altitude",
                    "orthometric altitude"]
         correlation_dict = {}
-        # collect tags from config and stash
+        # collect tags from config and stash. used in download step of recursive processing
         for parameter_key, parameter_value in config.items():
             if parameter_value.get("tag") is not None:
                 # add new tags to dictionary
@@ -309,47 +313,154 @@ class check_logic():
                 # add parameters to correlation dictionary
                 correlation_dict[parameter_value.get("tag")].update({parameter_key: parameter_value})
 
-        # get altitudes that are tagged with "barometric altitude"
-        # dont get altitudes that are tagged with "pressure altitude". seem useless and redundant with barometric altitude
-        # "static pressure" needs "reference altitude" parameter name directly within its metadata
+        self.tag_lookup = correlation_dict
+        self.flight_parameters = parameter_list
 
-        correlations_config = {
-            "altitudes": {"static pressure": {"function": altitude_from_pressure, "reference_value": True},
-                          "barometric altitude": {"reference_value": True},
-                          "pressure altitude": {"reference_value": False},
-                          "orthometric altitude":{}}}
-
-
-        # iterate through values representing the same feature
-        for principal_feature in correlations_config.keys():
-            df_same_parameters = pd.DataFrame() #pf-principal feature
-            # operate on each different subtag of a feature
-            for tag in correlations_config[principal_feature].keys():
-                # for each parameter that is tagged with the same value
-                for parameter in correlation_dict[tag].keys():
-                    series = self.download_series(parameter_list[parameter], convert_to_SI=True)
-                    # if tag contains a reference value --> collect reference value
-                    if correlations_config[principal_feature][tag].get("reference_value"):
-                        reference_series = self.download_series(
-                            parameter_list[config[parameter]["reference"]],
-                            convert_to_SI=True)
-                        df = data_dict_to_dataframe(
-                            {"series": [series, "series"], "reference": [reference_series, "reference"]}, 25)
-                    else:
-                        df = data_dict_to_dataframe(
-                            {"series": [series, "series"]}, 25)
-                    if correlations_config[principal_feature][tag].get("function") is not None:
-                        df_same_parameters[parameter] = correlations_config[principal_feature][tag]["function"](df["series"], df["reference"])
-                    else:
-                        df_same_parameters[parameter] = df["series"]
-            # fuse all sensor of the same feature/principal feature
-            fused = fuse_redundant_sensors(df_same_parameters)
-            for parameter in list(df_same_parameters.columns):
-                # compare and upload info to sensor user_tags SHM
-                report = compare_reference_to_signal(fused, df_same_parameters[parameter])
-                # upload
-                report["suspicious values"] = self.pandas_to_list(report["suspicious values"])
-                self.update_shm_usertags(parameter_list[parameter], report)
-
+        self.check_lvl3(check_config, parameter_list)
 
         print(time.ctime() + "\tLevel 3 completed")
+
+    def check_lvl3(self, check_config, parameter_list):
+        """
+        this is the top level function that does generally the same as parse_lvl3_config() but lacks utility since it only
+        treats the top level parameters
+        :param check_config:
+        :type check_config:
+        :param parameter_list:
+        :type parameter_list:
+        :return:
+        :rtype:
+        """
+        # put weighting for hierarchical order.
+        df_select = pd.DataFrame()
+        compact_config = self.compact_config(self.name_aircraft, check_config)
+
+        for component_name, subcomponent in check_config["components"].items():
+            df_select[component_name], data_dict = self.parse_lvl3_config(subcomponent, component_name)
+
+            for parameter, value in data_dict.items():
+                # compare and upload info to sensor user_tags SHM
+                report = compare_reference_to_signal(df_select[component_name], value["data"])
+
+                # upload and sort
+                report["suspicious values"] = self.pandas_to_list(report["suspicious values"])
+                report["tag"] = value["tag"]
+                self.update_shm_usertags(parameter_list[parameter], report)
+
+                # add tags to components
+                if compact_config[component_name].get("tags") is None:
+                    compact_config[component_name]["tags"] = {}
+                if value["tag"] not in compact_config[component_name]["tags"]:
+                    compact_config[component_name]["tags"].update({value["tag"]:[parameter]})
+                else:
+                    compact_config[component_name]["tags"][value["tag"]].append(parameter)
+
+            compact_config[component_name]["checking_range"] = report.get("checking_range")
+
+
+        for column in df_select.columns:
+            select_series = df_select[column].resample("5S").ffill()
+            compact_config[column]["data"] = [(select_series.index.asi8 * 1e-9).tolist(), select_series.values.tolist()]
+
+            # also upload to collection user_tags. This contains check_config as well as fused parameters
+        self.update_shm_usertags(self.collection_id, {"level 3": compact_config})
+
+    def compact_config(self, name, check_config):
+        config_dict = {}
+        if check_config.get("components") is not None:
+            for key, value in check_config["components"].items():
+                config_dict.update({key: self.compact_config(key, value)})
+        else:
+            # add tags from tag lookup
+            for parameter in self.tag_lookup[name]:
+                config_dict.update({parameter: {"type":"parameter"}})
+        return config_dict
+
+    def parse_lvl3_config(self, component, name):
+        """
+        receives a number of components in the shape of a dictionary as well as a name for the config
+
+        :param component:
+        :type component:
+        :param name:
+        :type name:
+        :return: pandas series using given function. Only use pandas dataframe at top level
+        :rtype:
+        """
+        # put weighting for hierarchical order.
+        data_dict = {}
+        fusing_df = pd.DataFrame()
+
+        # data acquisition step
+        if component.get("components") is None:
+            temp_dict = self.get_vars_from_tag(name, component)
+            data_dict.update(temp_dict)
+            for key in temp_dict.keys():
+                fusing_df[key] = temp_dict[key]["data"]
+        else:
+            for component_name, subcomponent in component["components"].items():
+                fusing_df[component_name], misc = self.parse_lvl3_config(subcomponent, component_name)
+                data_dict.update(misc)
+
+        # data processing step
+        if component.get("function") is not None:
+            # put all items through data processing step so that all parameters get transformed by the same metric?
+            # needs work regarding feasibility of implementing dynamic big functions with multiple dynamic inputs. idk how?
+            pass
+
+        if component.get("mergefunction") is None or component.get("components") is None:
+            # default mode
+            fused_parameter = fuse_redundant_sensors(fusing_df)
+        else:
+            # else get specified function
+            fused_parameter = component["mergefunction"](fusing_df)
+
+        return fused_parameter, data_dict
+
+    def get_vars_from_tag(self, tag, component) -> dict:
+        """
+        receives a tag with which it downloads tagged sensors, processes them and returns a dataframe
+        :param tag:
+        :type tag:
+        :param component:
+        :type component:
+        :return:
+        :rtype:
+        """
+        sampling_rate = 1
+        # dataframe to collect component in
+        data_dict = {}
+        # get variable via stash using the tag to find all parameters that are associated with it.
+        paramdict = self.tag_lookup.get(tag)
+        if paramdict is None:
+            parameters = []
+        else:
+            parameters = paramdict.keys()
+
+        for parameter in parameters:
+            print("downloading: " + parameter)
+            series = self.download_series(self.flight_parameters[parameter], convert_to_SI=True)
+
+            # if tag contains a reference value --> collect reference value
+            if component.get("reference_value"):
+                if self.tag_lookup[tag][parameter].get("reference") is None:
+                    raise Exception("Parameter does not contain reference in config excel: " + parameter)
+                reference_series = self.download_series(
+                    self.flight_parameters[self.tag_lookup[tag][parameter]["reference"]],
+                    convert_to_SI=True)
+                temp_df = data_dict_to_dataframe(
+                    {"series": [series, "series"], "reference": [reference_series, "reference"]}, sampling_rate)
+            else:
+                temp_df = data_dict_to_dataframe(
+                    {"series": [series, "series"]}, sampling_rate)
+
+            data_dict[parameter] = {}
+            # check for transformation function
+            if component.get("function") is not None and component.get("reference_value") is not None:
+                data_dict[parameter]["data"] = component["function"](temp_df["series"], temp_df["reference"])
+            elif component.get("function") is not None and component.get("reference_value") is None:
+                data_dict[parameter]["data"] = component["function"](temp_df["series"])
+            else:
+                data_dict[parameter]["data"] = temp_df["series"]
+            data_dict[parameter]["tag"] = tag
+        return data_dict

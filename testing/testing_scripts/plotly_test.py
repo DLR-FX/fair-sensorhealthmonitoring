@@ -1,82 +1,44 @@
-import pandas as pd
-import plotly.graph_objs as go
+import dash_renderjson
 import dash
-from dash import dcc, html
+import dash_daq as daq
 from dash.dependencies import Input, Output
+import dash_html_components as html
 
-# Load dataset into a pandas DataFrame
-df = pd.read_csv('your_dataset.csv')
-
-# Create a Dash app
 app = dash.Dash(__name__)
 
-# Define the layout of the app
-app.layout = html.Div([
-    html.H1('Two Time Series Plot'),
-    dcc.Graph(id='time-series-graph')
-])
 
-# Define the callback function for the graph
+app.layout = html.Div([daq.ToggleSwitch(id="my-toggle-switch", value=False), html.Div(id="output")])
+
+
 @app.callback(
-    Output('time-series-graph', 'figure'),
-    [Input('time-series-graph', 'hoverData')]
-)
-def update_time_series(hoverData):
-    # Check if hoverData is None or empty
-    if not hoverData:
-        series_name = 'Series 1'
-    else:
-        # Get the name of the series from hoverData
-        series_name = hoverData['points'][0]['curveNumber']
+    Output("output", "children"),
+    [Input("my-toggle-switch", "value")])
+def display_output(value):
+    if value:
+        data = {"a": 1, "b": [1, 2, 3, {"c": 4}]}
 
-    # Create the figure object
-    fig = go.Figure()
+        theme = {
+            "scheme": "monokai",
+            "author": "wimer hazenberg (http://www.monokai.nl)",
+            "base00": "#272822",
+            "base01": "#383830",
+            "base02": "#49483e",
+            "base03": "#75715e",
+            "base04": "#a59f85",
+            "base05": "#f8f8f2",
+            "base06": "#f5f4f1",
+            "base07": "#f9f8f5",
+            "base08": "#f92672",
+            "base09": "#fd971f",
+            "base0A": "#f4bf75",
+            "base0B": "#a6e22e",
+            "base0C": "#a1efe4",
+            "base0D": "#66d9ef",
+            "base0E": "#ae81ff",
+            "base0F": "#cc6633",
+        }
+        return dash_renderjson.DashRenderjson(id="input", data=data, max_depth=-1, theme=theme, invert_theme=True)
 
-    # Plot the first time series
-    fig.add_trace(
-        go.Scatter(
-            x=df['timestamp'],
-            y=df['series1'],
-            mode='lines',
-            name='Series 1',
-            line=dict(width=2),
-            hoverinfo='none'  # Hide hover info for this series
-        )
-    )
 
-    # Plot the second time series
-    fig.add_trace(
-        go.Scatter(
-            x=df['timestamp'],
-            y=df['series2'],
-            mode='lines',
-            name='Series 2',
-            line=dict(width=2),
-            hovertemplate='%{x}<br>%{y}'  # Customize hover info for this series
-        )
-    )
-
-    # Customize the layout of the figure
-    fig.update_layout(
-        title='Two Time Series Plot',
-        xaxis_title='Timestamp',
-        yaxis_title='Value',
-        hovermode='x',  # Only show hover info for the x-axis
-        legend=dict(
-            title=None,
-            orientation='h',
-            y=1.1,
-            yanchor='bottom',
-            x=0.5,
-            xanchor='center'
-        )
-    )
-
-    # Highlight the selected series
-    fig.data[series_name].line.color = 'red'
-
-    return fig
-
-# Run the app
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run_server(debug=True)

@@ -24,18 +24,23 @@ def normalize_unit(vector_in, unit_in):
         "rad ": {"unit": "deg", "equation": lambda radian: radian * 360 / (2 * np.pi)},
         "rad/s": {"unit": "deg/s", "equation": lambda radian: radian * 360 / (2 * np.pi)},
         "rad/s^2": {"unit": "deg/s^2", "equation": lambda radian: radian * 360 / (2 * np.pi)},
+        "K": {"unit": "K", "equation": lambda K: K},
         "C": {"unit": "K", "equation": lambda C: C - 273.15},
         "F": {"unit": "K", "equation": lambda F: (F - 32) * 5 / 9 + 273.15},
         "t": {"unit": "kg", "equation": lambda t: t * 1000},
         "lb": {"unit": "kg", "equation": lambda lb: lb * 0.453592},
+        "m": {"unit": "m", "equation": lambda m: m},
         "ft": {"unit": "m", "equation": lambda ft: ft * 0.3048},
         "km": {"unit": "m", "equation": lambda km: km * 1000},
         "NM": {"unit": "m", "equation": lambda NM: NM * 1852},
         "mm": {"unit": "m", "equation": lambda mm: mm / 1000},
+        "m/s": {"unit": "m/s", "equation": lambda ms: ms},
         "kts": {"unit": "m/s", "equation": lambda kts: kts / 1.94384},
         "ft/min": {"unit": "m/s", "equation": lambda ftmin: ftmin / 196.85},
         "km/h": {"unit": "m/s", "equation": lambda kmh: kmh / 3.6},
+        "m/s^2": {"unit": "m/s^2", "equation": lambda mss: mss},
         "g": {"unit": "m/s^2", "equation": lambda g: g * 9.80665},
+        "Pa": {"unit": "Pa", "equation": lambda Pa: Pa},
         "hPa": {"unit": "Pa", "equation": lambda hPa: hPa * 100},
         "lb/ft^2": {"unit": "Pa", "equation": lambda lbft2: lbft2 * 47.8803},
         "mB": {"unit": "Pa", "equation": lambda mB: mB * 100},
@@ -51,7 +56,61 @@ def normalize_unit(vector_in, unit_in):
     return vector_out, unit_out
 
 
-def altitude_from_pressure(p, p_0) -> float:
+def ellipsoid_to_orthometric(ellipsoid_alt):
+    """
+    TODO: receive an ellipsoid altitude and return the orthometric altitude based on WGS84 geoid
+
+
+    :param ellipsoid_alt:
+    :type ellipsoid_alt:
+    :return:
+    :rtype:
+    """
+
+    return ellipsoid_alt[0]
+
+
+def merge_altitudes(df):
+    """
+    perhaps low highpassfilter altitudes here
+    :param df:
+    :type df:
+    :return:
+    :rtype:
+    """
+    return df.mean(axis=1)
+
+
+def gnss_speed(df):
+    """
+    TODO: calculate gnss speed based on north south and east west velocity
+
+    :param ns_speed:
+    :type ns_speed:
+    :param ew_velocity:
+    :type ew_velocity:
+    :return:
+    :rtype:
+    """
+    print("calculating gnss velocity")
+    # TODO: calculate pythagorean root lol
+
+    return df.mean(axis=1)
+
+
+def baro_to_gnss(baro_alt):
+    """
+    TODO: implement series that receives baro series and transforms it to a valid gnss altitude
+
+    :param baro_alt:
+    :type baro_alt:
+    :return:
+    :rtype:
+    """
+    return baro_alt.mean(axis=1)
+
+
+def altitude_from_pressure(p, p_0):
     """
     expects input units to be Pascal
 
@@ -202,7 +261,7 @@ def short_time_statistics(series, nperseg=256):
     return report
 
 
-def detect_suspicious_behaviour(value, mean, stdev, factor=6)->float:
+def detect_suspicious_behaviour(value, mean, stdev, factor=6) -> float:
     """
     detect values that are above "factor" times standard deviation
 
@@ -236,9 +295,9 @@ def compare_reference_to_signal(reference, signal):
 
     nperseg=number of values per segment
     :param signal:
-    :type signal:
+    :type signal: pd.Series
     :param ref_signal:
-    :type ref_signal:
+    :type ref_signal: pd.Series
     :return:
     :rtype:
     """
@@ -251,12 +310,14 @@ def compare_reference_to_signal(reference, signal):
     mean = reference.rolling(256, center=True).mean()
     reference_highpassed = reference - mean
     stdev = reference_highpassed.std()
-    #
+
+    factor = 1
     sus_func = np.vectorize(detect_suspicious_behaviour)
     # check if signal is within standard deviation of reference signal
-    sus = pd.Series(index=reference.index, data=sus_func(signal, reference, stdev, factor=1))
+    sus = pd.Series(index=reference.index, data=sus_func(signal, reference, stdev, factor=factor))
     report = {"suspicious values": sus.loc[sus != 0],
-              "offset": str(offset)}
+              "offset": str(offset),
+              "checking_range": str(stdev * factor)}
     # return issue list and offset
     # define percentile of standard deviation for signal
     return report

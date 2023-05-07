@@ -11,6 +11,7 @@ import seaborn as sns
 import networkx as nx
 import scipy
 
+import stashComms.parsing_cli as stash
 
 def pca_plot(pca_total, z_data, parameter):
     # plot
@@ -38,10 +39,7 @@ if __name__ == "__main__":
     stash_io = StashInterface("dev")
     sensor_list = stash_io.download_series_list("6407225c6ff39c8dec1ea03a")
     # find abstract sensor class for each sensor
-
-    df = stash_io.download_flight("639d04757f46b2ad8d943b0a", parameters=["FD_RUDDER"],
-                                  sampling_rate=50)
-
+    df = stash.general_download("dev", "64215c47c84cd08f5ab01505",parameters=["FUS_050303_pY"],frequency=50)
 
     signals = [df["FD_RUDDER"]]
     fig, axs = plt.subplots(2, 1)

@@ -76,6 +76,10 @@ body {
     color: #079A82;
 }
 
+.timeline {
+    padding: 20px 20px;
+}
+
 .level1 {
     grid-area: level1;
     border: 1px solid #ccc;
@@ -84,6 +88,8 @@ body {
 .level2 {
     grid-area: level2;
     border: 1px solid #ccc;
+    display:flex;
+    flex-direction: row;
 }
 
 .level3 {
@@ -91,12 +97,18 @@ body {
     border: 1px solid #ccc;
 }
 
+.level3-box {
+    border: 4px solid #ccc;
+    display:flex;
+
+}
+
 .wrapper12 {
     padding: 20px 20px;
     height: 50vh;
     display: grid;
-    grid-template-column: 1fr 3fr;
-    grid-template-rows: 2fr 2fr;
+    /grid-template-column: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
     grid-template-areas:
     "level1 level2 level2"
     "level3 level3 level3";

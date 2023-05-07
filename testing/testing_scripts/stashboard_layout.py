@@ -60,19 +60,19 @@ def get_layout(app):
                 ],
                 className="menu",
             ),
-            html.Div([#html.P("Timeline"),
+            html.Div([
                       dcc.Graph(style={"height": "200px"},
-                                id='graph-timeline'
-                                ),
+                                id='graph-timeline'),
                       ],
-                     id="div-timeline"
+                     id="div-timeline",
+                     className="timeline"
                      ),
             html.Div(
                 children=[
                     html.Div(children=[
                         html.P("Level 1"),
-                        dcc.Graph(figure=px.pie(None), style={"width": "28vh", "height": "28vw"}, id="parameter-pie")
-                    ], id="level1",
+                    ],
+                        id="level1",
                         className="level1"
                     ),
                     html.Div(children=[
