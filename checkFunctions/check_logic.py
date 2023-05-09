@@ -178,7 +178,7 @@ class check_logic():
         self.update_shm_usertags(collection_id, {"missing parameters": missing_parameters})
         print("level 1 check complete")
 
-        if False:
+        if True:
             level_2_notes = self.layer_two_from_stash(collection_id, config, check_config_2)
             self.update_shm_usertags(collection_id, {"single sensor behaviour": level_2_notes})
             print("level 2 check complete")
@@ -347,20 +347,22 @@ class check_logic():
                 report["tag"] = value["tag"]
                 self.update_shm_usertags(parameter_list[parameter], report)
 
-                # add tags to components
-                if compact_config[component_name].get("tags") is None:
-                    compact_config[component_name]["tags"] = {}
-                if value["tag"] not in compact_config[component_name]["tags"]:
-                    compact_config[component_name]["tags"].update({value["tag"]:[parameter]})
+                # add tags to components. add property tab first to allow cleaner interface lol
+                if compact_config[component_name].get("properties") is None:
+                    compact_config[component_name]["properties"] = {}
+                if compact_config[component_name]["properties"].get("tags") is None:
+                    compact_config[component_name]["properties"]["tags"] = {}
+                if value["tag"] not in compact_config[component_name]["properties"]["tags"]:
+                    compact_config[component_name]["properties"]["tags"].update({value["tag"]:[parameter]})
                 else:
-                    compact_config[component_name]["tags"][value["tag"]].append(parameter)
+                    compact_config[component_name]["properties"]["tags"][value["tag"]].append(parameter)
 
-            compact_config[component_name]["checking_range"] = report.get("checking_range")
+            compact_config[component_name]["properties"]["checking_range"] = report.get("checking_range")
 
 
         for column in df_select.columns:
             select_series = df_select[column].resample("5S").ffill()
-            compact_config[column]["data"] = [(select_series.index.asi8 * 1e-9).tolist(), select_series.values.tolist()]
+            compact_config[column]["properties"]["data"] = [(select_series.index.asi8 * 1e-9).tolist(), select_series.values.tolist()]
 
             # also upload to collection user_tags. This contains check_config as well as fused parameters
         self.update_shm_usertags(self.collection_id, {"level 3": compact_config})
@@ -373,7 +375,7 @@ class check_logic():
         else:
             # add tags from tag lookup
             for parameter in self.tag_lookup[name]:
-                config_dict.update({parameter: {"type":"parameter"}})
+                config_dict.update({parameter: {}})
         return config_dict
 
     def parse_lvl3_config(self, component, name):

@@ -17,8 +17,7 @@ client = Client.from_instance_name("prod")
 projects = {project["id"]: project["name"] for project in client.search({"type": "project"})}
 # third: flights
 flights = {}
-
-app = Dash(__name__)
+app = Dash(__name__, external_stylesheets=[dbc.themes.LUX, dbc.icons.FONT_AWESOME])
 app.title = "stashboard: the stash's FTI dashboard"
 app.layout = get_layout(app)
 

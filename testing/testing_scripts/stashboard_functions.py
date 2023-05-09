@@ -12,11 +12,11 @@ from plotly.subplots import make_subplots
 import numpy as np
 from Parsing.parseFunctions import timestamp_from_utc, gen_dict_extract
 from dateutil import parser
+import dash_bootstrap_components as dbc
 
 
 def update_timeline(sensors, sensor_times):
     tz = pytz.timezone('UTC')
-
 
     # use scid to fix up times
     # find all start and end times.
@@ -132,11 +132,12 @@ def level1_speedo(missing_sensors, present_sensors):
                        figure=go.Figure(
                            layout=go.Layout(
                                title={"text": "Parameter Availability"},
-                               annotations=[{"text": "             ",
+                               annotations=[{"text": "show",
                                              "hovertext": missing_string,
                                              "showarrow": False,
                                              "align": "left",
-                                             "height": 1000}]
+                                             "height": 1000}],
+                               margin=dict(l=40, r=40),
                            ),
                            data=go.Indicator(
                                mode="gauge+number",
@@ -159,47 +160,22 @@ def level1_speedo(missing_sensors, present_sensors):
 
 def update_level2(shm, sensors, times):
     children = []
-    # try plotting errors (limit|amplitude) per minute over the whole flight
-
     # create scatter plot for each parameter on the time axis. plot out of limit as red. Out of amplitude as blue
     ssb = shm.get("single sensor behaviour")
     fig = go.Figure()
 
     parameter_errors = {}
-
     # plot each error
     for error in ssb.keys():
-        # transform data into dictionary of times and entries of variables
-        time_dict = {}
+        time_dict = get_error_occurence_sum(ssb[error])
+
         for parameter, value in ssb[error].items():
-            # this is inefficient af
-            for time in list(value["occurences"].keys()):
-                time_dict.setdefault(parser.parse(time), []).append(parameter)
-            # also create a dictionary for n_errors
+            # create a dictionary counting the number of errors per parameter over all error types
             # check if key is existent. if it is existent. add number of errors if not create and assign number of errors
             if parameter_errors.get(parameter) is None:
                 parameter_errors[parameter] = len(value["occurences"].keys())
             else:
                 parameter_errors[parameter] = parameter_errors[parameter] + len(value["occurences"].keys())
-
-        """ # optimization strategy?
-        inv_map = {}
-        for k, v in ssb[error].items():
-            inv_map[v] = inv_map.setdefault(list(v["occurences"].keys()), []).append(k)
-        """
-        # Get smallest and largest times
-        start = min(time_dict.keys())
-        end = max(time_dict.keys())
-        delta = timedelta(seconds=1)
-        # fill in empty values with 0.
-        # Iterate over datetime range and fill in missing keys with empty lists
-        while start <= end:
-            if start not in time_dict:
-                time_dict[start] = []
-            start += delta
-
-        # sort
-        time_dict = {k: time_dict[k] for k in sorted(time_dict)}
 
         # isolate data for x-axis:time and y-axis
         fig.add_trace(go.Scatter(x=list(time_dict.keys()),
@@ -207,7 +183,8 @@ def update_level2(shm, sensors, times):
                                  mode="lines",
                                  text=["<br>".join(dot) for dot in list(time_dict.values())],
                                  name=error,
-                                 showlegend=True
+                                 showlegend=True,
+                                 opacity=0.7,
                                  ))
     # sort parameter errors
     parameter_errors = {k: parameter_errors[k] for k in
@@ -269,35 +246,250 @@ def update_level3(shm, sensors, sensor_times):
         if sensor["user_tags"].get("SHM") is not None:
             shm3.update({sensor["user_tags"]["Name"]: sensor["user_tags"]["SHM"]})
 
-    # create dash columns for number of
-    print("test")
-
+    # create dash columns for number of parameters
     for component, comp_content in shm.get("level 3").items():
         # create children in x direction for windows description, graph, offset
         # descriptor 30%, graph 40%, offset 30%
+        # ignore properties attribute
+        edges = get_edge_lists({k: v for k, v in comp_content.items() if k not in ["properties"]}, component)
+        # wrap edge names at 25 characters using the underscore _ as natural separator
+        for n, edge in enumerate(edges[1]):
+            edges[1][n] = fold_string(edge, 25, "_", "<br>")
 
-        descriptor_table = dash_renderjson.DashRenderjson(id="input", data=comp_content["tags"], max_depth=-1)
-        descriptor = html.Div(children=[descriptor_table], style=dict(width="30%"))
-
+        treefig = go.Figure(data=go.Treemap(
+            parents=edges[0],
+            labels=edges[1],
+        ), layout=go.Layout(margin=dict(l=10, r=10), ))
+        descriptor = html.Div(children=[dcc.Graph(figure=treefig, config=dict(responsive=True))],
+                              style={"width": "25%", "height": "100%"})
         #########
         # get comp_content["data"] and plot with +- checking range.
+        x_data = [dt.fromtimestamp(timestamp, tz=timezone.utc) for timestamp in comp_content["properties"]["data"][0]]
+        y_data = comp_content["properties"]["data"][1]
+        y_upper = [value + float(comp_content["properties"]["checking_range"]) for value in y_data]
+        y_lower = [value - float(comp_content["properties"]["checking_range"]) for value in y_data]
 
-        x_data = [dt.fromtimestamp(timestamp, tz=timezone.utc) for timestamp in comp_content["data"][0]]
-        y_data = comp_content["data"][1]
-        fig = go.Figure(go.Scatter(x=x_data, y=y_data))
+        fig = go.Figure(data=go.Scatter(
+            x=x_data + x_data[::-1],
+            y=y_upper + y_lower[::-1],
+            fill='toself',
+            fillcolor='#B5B0FF',
+            line_color='rgba(255,255,255,0)',
+            showlegend=False,
+            name='Ideal',
+            yaxis="y1",
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=x_data, y=y_data,
+            line_color='#3024FF',
+            name=component + " +- allowed deviation",
+            yaxis="y1",
+        ))
+        # add trace for error occurences.
+        # get parameter for component
+        parameter_list = [parameter for tag in comp_content["properties"]["tags"].keys()
+                          for parameter in comp_content["properties"]["tags"][tag]]
+        # get error dictionary based on the component-parameter_list
+        error_dict = {key: {"occurences": value["suspicious values"]} for key, value in shm3.items() if
+                      key in parameter_list}
+        # transpose error list into dict of time
+        time_dict = get_error_occurence_sum(error_dict)
+        # isolate data for x-axis:time and y-axis
+        fig.add_trace(go.Scatter(
+            x=list(time_dict.keys()),
+            y=[len(element) for element in time_dict.values()],
+            line_color="orange",
+            mode="lines",
+            text=["<br>".join(dot) for dot in list(time_dict.values())],
+            name="number errors",
+            showlegend=True,
+            yaxis="y2",
+            opacity=0.5,
+        ))
+
+        fig.update_layout(
+            # title='',
+            hovermode='closest',
+            xaxis=dict(
+                domain=[0.3, 1]
+            ),
+            yaxis=dict(title=component),
+            yaxis2=dict(title='number errors',
+                        titlefont=dict(color="orange"),
+                        tickfont=dict(color="orange"),
+                        anchor="free",
+                        overlaying='y',
+                        side='left',
+                        position=0.15,
+                        rangemode="tozero",
+                        autorange=True,
+                        ),
+            # plot_bgcolor='white',
+            legend=dict(yanchor="bottom",
+                        xanchor="right",
+                        ))
 
         graph = html.Div(children=[dcc.Graph(figure=fig,
                                              config=dict(responsive=True))],
-                         style={"width": "39%"})
-
+                         style={"width": "65%", "height": "100%"})
         ############
         # then get all parameters with according tags and calculate occurences per second
+        # TODO: plot offset in percentage of allowed deviation.
+        # TODO: find way to remark NONe/nan values
 
-        offset = html.Div(style={"width": "30%"})
-        # plot 1d all parameter offsets that are with the same tags
-        component_box = html.Div(children=[descriptor, graph, offset],
-                                 className="level3-box", #style={"display":"flex", "flex-direction":"column"}
-                                 )
+        traces = []
+        for parameter, value in shm3.items():
+            if parameter in parameter_list:
+                parameter = fold_string(parameter, 25, "_", "<br>")
+                traces.append(go.Scatter(
+                    x=[0],
+                    y=[float(value["offset"])],
+                    text=parameter,
+                    name=parameter,
+                    # line_color="white",
+                    marker=dict(
+                        symbol=["line-ew-open"],
+                        size=16,
+                        # line_color=["blue"],
+                        line_width=2
+                    ),
+                ))
+
+        layout = go.Layout(
+            # title='Start and Stop Times for Parameter Recording',
+            yaxis=dict(title='Offset', showgrid=False),
+            xaxis=dict(showgrid=False,
+                       zeroline=True, zerolinecolor='black', zerolinewidth=3,
+                       showticklabels=False),
+            hovermode='closest',
+            plot_bgcolor='white',
+            showlegend=False,
+            # legend=dict(  # title_text='Start and Stop Times for Parameter Recording\t',
+            # yanchor="bottom", #y=1.4,
+            # xanchor="left", #x=0,
+            # orientation="h"
+            # )
+        )
+
+        offset = html.Div(children=[
+            dcc.Graph(
+                figure=go.Figure(data=traces, layout=layout),
+                config=dict(responsive=True),
+            )],
+            style={"width": "10%", "height": "100%"})
+
+        ### plot 1d all parameter offsets that are with the same tags
+        component_box = html.Div([html.Div(children=[descriptor, graph, offset],
+                                           style={"display": "flex",
+                                                  "flex-direction": "row",
+                                                  "width": "100%",
+                                                  }
+                                           )], style=dict(padding="10px 10px"))
         children.append(component_box)
 
     return children
+
+
+def fold_string(string, max_line_length=25, separator=" ", linebreak="\n"):
+    """
+    this is a function for generating a folded line based on the maximum allowed line length and splits the string before the line is exceeded.
+
+    a separator can be given to indicate the string separators.
+    :param string:
+    :type string:
+    :param max_line_length:
+    :type max_line_length:
+    :param separator:
+    :type separator:
+    :return:
+    :rtype:
+    """
+
+    # check if string is longer than linebreak
+    if len(string) > max_line_length:
+        chunks = string.split(separator)
+        new_string = ""
+        char_counter = 0
+        for n, chunk in enumerate(chunks):
+            # check if adding strings would be greater than line length
+            if char_counter + len(chunk) > max_line_length:
+                # add linebreak and then add
+                new_string += linebreak + chunk
+                char_counter = len(linebreak + chunk)
+            else:
+                if n > 0:
+                    string_addon = separator + chunk
+                else:
+                    string_addon = chunk
+                new_string += string_addon
+                char_counter += len(string_addon)
+    else:
+        new_string = string
+    return new_string
+
+
+def get_edge_lists(d, m="root"):
+    edges = get_edges(d, m)
+    # transpose nested lists
+    edges_tp = list(map(lambda *x: list(x), *edges))
+    return edges_tp
+
+
+def get_edges(d, m="root"):
+    """
+    :param d: system description: hierarchical data dict, no lists allowed. Allows processing of str
+    :type d: dictionary
+    :param m: name of the root parameter
+    :type m: str
+    :return: list linking parameters for treemap usage
+    :rtype: list of lists
+    """
+    edges = []
+    for key, value in d.items():
+        edges.append([m, key])
+        if type(value) is dict:
+            edges.extend(get_edges(value, key))
+        elif type(value) is str:
+            edges.append([key, value])
+        else:
+            print("Invalid data type in " + key)
+    return edges
+
+
+def get_error_occurence_sum(error_dict):
+    """
+    get sensors and their error occurences by time and permute into a dictionary of times
+
+    :param error_dict: sensor(time(value))
+    :type error_dict: dict(dict(str))
+    :return: time(parameters)
+    :rtype: dict(list)
+    """
+    time_dict = {}
+
+    # transform data into dictionary of times and entries of variables
+    for parameter, value in error_dict.items():
+        # this is inefficient af
+        for time in list(value["occurences"].keys()):
+            time_dict.setdefault(parser.parse(time), []).append(parameter)
+
+    """ # optimization strategy?
+    inv_map = {}
+    for k, v in ssb[error].items():
+        inv_map[v] = inv_map.setdefault(list(v["occurences"].keys()), []).append(k)
+    """
+    # Get smallest and largest times
+    start = min(time_dict.keys())
+    end = max(time_dict.keys())
+    delta = timedelta(seconds=1)
+    # fill in empty values with 0.
+    # Iterate over datetime range and fill in missing keys with empty lists
+    while start <= end:
+        if start not in time_dict:
+            time_dict[start] = []
+        start += delta
+
+    # sort
+    time_dict = {k: time_dict[k] for k in sorted(time_dict)}
+    return time_dict

@@ -1,44 +1,94 @@
-import dash_renderjson
-import dash
-import dash_daq as daq
-from dash.dependencies import Input, Output
-import dash_html_components as html
+import plotly.graph_objects as go
 
-app = dash.Dash(__name__)
+fig = go.Figure()
 
-
-app.layout = html.Div([daq.ToggleSwitch(id="my-toggle-switch", value=False), html.Div(id="output")])
-
-
-@app.callback(
-    Output("output", "children"),
-    [Input("my-toggle-switch", "value")])
-def display_output(value):
-    if value:
-        data = {"a": 1, "b": [1, 2, 3, {"c": 4}]}
-
-        theme = {
-            "scheme": "monokai",
-            "author": "wimer hazenberg (http://www.monokai.nl)",
-            "base00": "#272822",
-            "base01": "#383830",
-            "base02": "#49483e",
-            "base03": "#75715e",
-            "base04": "#a59f85",
-            "base05": "#f8f8f2",
-            "base06": "#f5f4f1",
-            "base07": "#f9f8f5",
-            "base08": "#f92672",
-            "base09": "#fd971f",
-            "base0A": "#f4bf75",
-            "base0B": "#a6e22e",
-            "base0C": "#a1efe4",
-            "base0D": "#66d9ef",
-            "base0E": "#ae81ff",
-            "base0F": "#cc6633",
-        }
-        return dash_renderjson.DashRenderjson(id="input", data=data, max_depth=-1, theme=theme, invert_theme=True)
+fig.add_trace(go.Scatter(
+    x=[1, 2, 3],
+    y=[4, 5, 6],
+    name="yaxis1 data"
+))
 
 
-if __name__ == "__main__":
-    app.run_server(debug=True)
+fig.add_trace(go.Scatter(
+    x=[2, 3, 4],
+    y=[40, 50, 60],
+    name="yaxis2 data",
+    yaxis="y2"
+))
+
+fig.add_trace(go.Scatter(
+    x=[4, 5, 6],
+    y=[40000, 50000, 60000],
+    name="yaxis3 data",
+    yaxis="y3"
+))
+
+fig.add_trace(go.Scatter(
+    x=[5, 6, 7],
+    y=[400000, 500000, 600000],
+    name="yaxis4 data",
+    yaxis="y4"
+))
+
+
+# Create axis objects
+fig.update_layout(
+    xaxis=dict(
+        domain=[0.3, 0.7]
+    ),
+    yaxis=dict(
+        title="yaxis title",
+        titlefont=dict(
+            color="#1f77b4"
+        ),
+        tickfont=dict(
+            color="#1f77b4"
+        )
+    ),
+    yaxis2=dict(
+        title="yaxis2 title",
+        titlefont=dict(
+            color="#ff7f0e"
+        ),
+        tickfont=dict(
+            color="#ff7f0e"
+        ),
+        anchor="free",
+        overlaying="y",
+        side="left",
+        position=0.15
+    ),
+    yaxis3=dict(
+        title="yaxis3 title",
+        titlefont=dict(
+            color="#d62728"
+        ),
+        tickfont=dict(
+            color="#d62728"
+        ),
+        anchor="x",
+        overlaying="y",
+        side="right"
+    ),
+    yaxis4=dict(
+        title="yaxis4 title",
+        titlefont=dict(
+            color="#9467bd"
+        ),
+        tickfont=dict(
+            color="#9467bd"
+        ),
+        anchor="free",
+        overlaying="y",
+        side="right",
+        position=0.85
+    )
+)
+
+# Update layout properties
+fig.update_layout(
+    title_text="multiple y-axes example",
+    width=800,
+)
+
+fig.show()

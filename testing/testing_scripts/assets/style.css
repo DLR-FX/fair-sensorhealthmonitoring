@@ -97,18 +97,13 @@ body {
     border: 1px solid #ccc;
 }
 
-.level3-box {
-    border: 4px solid #ccc;
-    display:flex;
-
-}
 
 .wrapper12 {
     padding: 20px 20px;
-    height: 50vh;
+    height: auto;
     display: grid;
     /grid-template-column: 1fr 1fr;
-    grid-template-rows: 1fr 1fr;
+    grid-template-rows: 30vh auto;
     grid-template-areas:
     "level1 level2 level2"
     "level3 level3 level3";
