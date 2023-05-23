@@ -167,25 +167,26 @@ def update_level2(shm, sensors, times):
     parameter_errors = {}
     # plot each error
     for error in ssb.keys():
-        time_dict = get_error_occurence_sum(ssb[error])
+        if len(ssb[error]) > 0 :
+            time_dict = get_error_occurence_sum(ssb[error])
 
-        for parameter, value in ssb[error].items():
-            # create a dictionary counting the number of errors per parameter over all error types
-            # check if key is existent. if it is existent. add number of errors if not create and assign number of errors
-            if parameter_errors.get(parameter) is None:
-                parameter_errors[parameter] = len(value["occurences"].keys())
-            else:
-                parameter_errors[parameter] = parameter_errors[parameter] + len(value["occurences"].keys())
+            for parameter, value in ssb[error].items():
+                # create a dictionary counting the number of errors per parameter over all error types
+                # check if key is existent. if it is existent. add number of errors if not create and assign number of errors
+                if parameter_errors.get(parameter) is None:
+                    parameter_errors[parameter] = len(value["occurences"].keys())
+                else:
+                    parameter_errors[parameter] = parameter_errors[parameter] + len(value["occurences"].keys())
 
-        # isolate data for x-axis:time and y-axis
-        fig.add_trace(go.Scatter(x=list(time_dict.keys()),
-                                 y=[len(element) for element in time_dict.values()],
-                                 mode="lines",
-                                 text=["<br>".join(dot) for dot in list(time_dict.values())],
-                                 name=error,
-                                 showlegend=True,
-                                 opacity=0.7,
-                                 ))
+            # isolate data for x-axis:time and y-axis
+            fig.add_trace(go.Scatter(x=list(time_dict.keys()),
+                                     y=[len(element) for element in time_dict.values()],
+                                     mode="lines",
+                                     text=["<br>".join(dot) for dot in list(time_dict.values())],
+                                     name=error,
+                                     showlegend=True,
+                                     opacity=0.7,
+                                     ))
     # sort parameter errors
     parameter_errors = {k: parameter_errors[k] for k in
                         sorted(parameter_errors, key=lambda i: int(parameter_errors[i]))}
@@ -212,7 +213,7 @@ def update_level2(shm, sensors, times):
         bar = go.Bar(y=y_data,
                      x=x_data,
                      orientation='h',
-                     text=y_data,
+                     #text=y_data, # not necessary since it is already shown. Possible to define additional data here later
                      textposition="auto",
                      )
 
@@ -385,7 +386,7 @@ def update_level3(shm, sensors, sensor_times):
                                                   "flex-direction": "row",
                                                   "width": "100%",
                                                   }
-                                           )], style=dict(padding="10px 10px"))
+                                           )], style=dict(padding="10px 0px"))
         children.append(component_box)
 
     return children

@@ -1,7 +1,6 @@
 from dash import Dash, Input, Output, State
 from stashclient.client import Client
 import plotly.express as px
-from readFunctions.readSensorInformation import read_istar_excel
 import dash_bootstrap_components as dbc
 from datetime import datetime
 import pytz

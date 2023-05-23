@@ -10,7 +10,6 @@ from stashclient.client import Client
 from Parsing.parseIMCEXP import config_from_istar_flight
 import pandas as pd
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 from checkFunctions.level3 import altitude_from_pressure, short_time_statistics, fuse_redundant_sensors, \
     compare_reference_to_signal, normalize_unit, baro_to_gnss, ellipsoid_to_orthometric, gnss_speed
 import numpy as np
@@ -42,8 +41,7 @@ class check_logic():
         self.layer_one_check()
         self.layer_two_check()
         self.print_warning()
-        self.mailClient.set_mail_content(self.warning)
-        # self.mailClient.sendMail()
+        self.mailClient.set_mail_content(self.warning)  # self.mailClient.sendMail()
 
     def pandas_from_stash(self, id):
         """
@@ -68,17 +66,16 @@ class check_logic():
 
     def reset_parameter_shm(self, id):
         # find all parameters from collection
-        parameters = self.instance.search({"parent": id, "is_basis_series":False})
+        parameters = self.instance.search({"parent": id, "is_basis_series": False})
 
         # get parameters that contain SHM usertags
-        parameters_filtered = [parameter for parameter in parameters
-                               if parameter["user_tags"].get("SHM") is not None]
+        parameters_filtered = [parameter for parameter in parameters if parameter["user_tags"].get("SHM") is not None]
 
         # pop SHM usertags
         for parameter in parameters_filtered:
             parameter["user_tags"].pop("SHM")
             # reapply parameters that had SHM user_tags
-            self.instance.update(parameter["id"], {"user_tags":parameter["user_tags"]})
+            self.instance.update(parameter["id"], {"user_tags": parameter["user_tags"]})
 
     def update_shm_usertags(self, id, shm_dict):
         """
@@ -114,8 +111,8 @@ class check_logic():
         """
         properties = self.instance.search({"id": id})[0]
         if properties["is_basis_series"] == False:
-            properties_time_series = self.instance.search({"series_connector_id": properties["series_connector_id"],
-                                                           "is_basis_series": True})[0]
+            properties_time_series = \
+            self.instance.search({"series_connector_id": properties["series_connector_id"], "is_basis_series": True})[0]
             time_data = self.instance.data(properties_time_series["id"], "list")
             parameter_data = self.instance.data(id, "list")
 
@@ -170,7 +167,6 @@ class check_logic():
             return 0
         self.name_aircraft = flight_list[0]["user_tags"]["registration"]
 
-
         # cleanup shm user_tags in series from previous iterations
         self.reset_parameter_shm(collection_id)
 
@@ -178,7 +174,7 @@ class check_logic():
         self.update_shm_usertags(collection_id, {"missing parameters": missing_parameters})
         print("level 1 check complete")
 
-        if True:
+        if True:  # for debugging purposes
             level_2_notes = self.layer_two_from_stash(collection_id, config, check_config_2)
             self.update_shm_usertags(collection_id, {"single sensor behaviour": level_2_notes})
             print("level 2 check complete")
@@ -207,8 +203,7 @@ class check_logic():
         :rtype: list
         """
         # level 1, get parameter names from stash
-        parameter_list = self.instance.search(
-            {"parent": flight_id, "type": "series", "is_basis_series": False})
+        parameter_list = self.instance.search({"parent": flight_id, "type": "series", "is_basis_series": False})
 
         # this has to be used to program out martins parameter abbreviations
         parameter_names = {}
@@ -220,8 +215,8 @@ class check_logic():
                 parameter_names.update({parameter.get("name"): ["id"]})
 
         # use "any" logic if it doesn't match to anything
-        missing_parameters = [param for param in config_parameters
-                              if not any(stash_param in param for stash_param in parameter_names.keys())]
+        missing_parameters = [param for param in config_parameters if
+                              not any(stash_param in param for stash_param in parameter_names.keys())]
         return missing_parameters, parameter_names
 
     def layer_one_check(self):
@@ -252,8 +247,7 @@ class check_logic():
         """
         # parameter id under usertags->name->value
         # LEVEL 2
-        parameter_list = self.instance.search(
-            {"parent": collection_id, "type": "series", "is_basis_series": False})
+        parameter_list = self.instance.search({"parent": collection_id, "type": "series", "is_basis_series": False})
 
         notes = {value["error_tag"]: {} for value in check_config.values()}
         # transform into column names
@@ -266,24 +260,64 @@ class check_logic():
             parameter_name = parameter["user_tags"]["Name"]
             parameter_config = config[parameter_name]
             progress_bar.set_description("Processing %s" % parameter_name)
-            # check if any of the given checks for min and max are within the parameter config
-            if any(level_2_check in list(parameter_config.keys()) for level_2_check in column_names):
-                # download parameter data into pandas series
+            if "sample time" in parameter_config.keys():
+                notes.update({"sampling anomaly": {}})
+                allowed_deviation = 0.05
                 series = self.pandas_from_stash(parameter["id"])
-                for check in check_config.values():
-                    limits = [parameter_config.get(check["min"]), parameter_config.get(check["max"])]
-                    if any(limits):  # if parameter limits are defined in config file
-                        if check.get("function") is not None:
-                            check_series = check.get("function")(series)
-                        else:
-                            check_series = series
-                        values_exceeded = check_series[~check_series.between(limits[0], limits[1])]
-                        if len(values_exceeded) > 0:  # if any occurences have been found
-                            notes[check["error_tag"]].update({parameter_name: {
-                                "occurences": self.pandas_to_list(values_exceeded),
-                                "limits": {"min": limits[0], "max": limits[1]}}})
+                suspicious_values, limits = self.level_2_check_frequency(series, parameter_config["sample time"],
+                                                                         allowed_deviation)
+                if len(suspicious_values) > 0:
+                    notes["sampling anomaly"].update({
+                        parameter_name: {"occurences": self.pandas_to_list(suspicious_values),
+                                         "limits": {"min": limits[0], "max": limits[1]}}})
+
+                self.level_2_check_from_config(parameter_name, parameter, parameter_config, check_config, column_names, notes)
 
         return notes
+
+    def level_2_check_frequency(self, series, sample_time, deviation=0.05):
+        """
+        calculating in nanoseconds
+        :param series:
+        :type series:
+        :param frequency:
+        :type frequency:
+        :param deviation:
+        :type deviation:
+        :return:
+        :rtype: pd.series, list[2]
+        """
+        # check sampling rate.
+        #  Check if timestamp deviates more than 5-10% from the given sampling rate and then mark errors.
+        sample_ns = sample_time * 1e9
+        # allowed range=sample time+-sample time*0.05
+        limits = [sample_ns - deviation * sample_ns, sample_ns + deviation * sample_ns]
+        # first: check general deviations from sampling rate
+
+        time_difference = np.diff(series.index.asi8)
+        # transform into pandas array. eliminate first row since time_difference cant be calculated for first element
+        check_series = pd.Series(index=series.index[1:], data=time_difference)
+        values_exceeded = check_series[~check_series.between(limits[0], limits[1])]
+
+        return values_exceeded, [limit * 1e-9 for limit in limits]
+
+    def level_2_check_from_config(self, parameter_name, parameter, parameter_config, check_config, column_names, notes):
+        # check if any of the given checks for min and max are within the parameter config
+        if any(level_2_check in list(parameter_config.keys()) for level_2_check in column_names):
+            # download parameter data into pandas series
+            series = self.pandas_from_stash(parameter["id"])
+            for check in check_config.values():
+                limits = [parameter_config.get(check["min"]), parameter_config.get(check["max"])]
+                if any(limits):  # if parameter limits are defined in config file
+                    if check.get("function") is not None:
+                        check_series = check.get("function")(series)
+                    else:
+                        check_series = series
+                    values_exceeded = check_series[~check_series.between(limits[0], limits[1])]
+                    if len(values_exceeded) > 0:  # if any occurences have been found
+                        notes[check["error_tag"]].update({
+                            parameter_name: {"occurences": self.pandas_to_list(values_exceeded),
+                                             "limits": {"min": limits[0], "max": limits[1]}}})
 
     """
     ██╗░░░░░███████╗██╗░░░██╗███████╗██╗░░░░░  ██████╗░
@@ -353,16 +387,16 @@ class check_logic():
                 if compact_config[component_name]["properties"].get("tags") is None:
                     compact_config[component_name]["properties"]["tags"] = {}
                 if value["tag"] not in compact_config[component_name]["properties"]["tags"]:
-                    compact_config[component_name]["properties"]["tags"].update({value["tag"]:[parameter]})
+                    compact_config[component_name]["properties"]["tags"].update({value["tag"]: [parameter]})
                 else:
                     compact_config[component_name]["properties"]["tags"][value["tag"]].append(parameter)
 
             compact_config[component_name]["properties"]["checking_range"] = report.get("checking_range")
 
-
         for column in df_select.columns:
             select_series = df_select[column].resample("5S").ffill()
-            compact_config[column]["properties"]["data"] = [(select_series.index.asi8 * 1e-9).tolist(), select_series.values.tolist()]
+            compact_config[column]["properties"]["data"] = [(select_series.index.asi8 * 1e-9).tolist(),
+                                                            select_series.values.tolist()]
 
             # also upload to collection user_tags. This contains check_config as well as fused parameters
         self.update_shm_usertags(self.collection_id, {"level 3": compact_config})
@@ -448,13 +482,11 @@ class check_logic():
                 if self.tag_lookup[tag][parameter].get("reference") is None:
                     raise Exception("Parameter does not contain reference in config excel: " + parameter)
                 reference_series = self.download_series(
-                    self.flight_parameters[self.tag_lookup[tag][parameter]["reference"]],
-                    convert_to_SI=True)
+                    self.flight_parameters[self.tag_lookup[tag][parameter]["reference"]], convert_to_SI=True)
                 temp_df = data_dict_to_dataframe(
                     {"series": [series, "series"], "reference": [reference_series, "reference"]}, sampling_rate)
             else:
-                temp_df = data_dict_to_dataframe(
-                    {"series": [series, "series"]}, sampling_rate)
+                temp_df = data_dict_to_dataframe({"series": [series, "series"]}, sampling_rate)
 
             data_dict[parameter] = {}
             # check for transformation function

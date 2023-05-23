@@ -47,7 +47,7 @@ body {
 
 .menu {
     height: 112px;
-    width: 912px;
+    width: 1050px;
     display: flex;
     justify-content: space-evenly;
     padding-top: 24px;
@@ -82,19 +82,16 @@ body {
 
 .level1 {
     grid-area: level1;
-    border: 1px solid #ccc;
 }
 
 .level2 {
     grid-area: level2;
-    border: 1px solid #ccc;
     display:flex;
     flex-direction: row;
 }
 
 .level3 {
     grid-area: level3;
-    border: 1px solid #ccc;
 }
 
 
@@ -102,11 +99,11 @@ body {
     padding: 20px 20px;
     height: auto;
     display: grid;
-    /grid-template-column: 1fr 1fr;
+    grid-template-column: 1fr 1fr;
     grid-template-rows: 30vh auto;
     grid-template-areas:
     "level1 level2 level2"
     "level3 level3 level3";
-    border: 1px solid #ccc;
+    /*border: 1px solid #ccc;*/
 }
 

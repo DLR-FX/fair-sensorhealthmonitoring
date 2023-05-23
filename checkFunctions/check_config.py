@@ -11,7 +11,8 @@ check_config = {
                 "amplitude": {"error_tag": "amplitude out of limits",
                               "min": "amplitude min",
                               "max": "amplitude max",
-                              "function": get_mean_noise}},
+                              "function": get_mean_noise},
+                },
     "level 3": {
         "components": {
             "altitude": {
