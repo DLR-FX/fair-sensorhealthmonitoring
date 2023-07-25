@@ -1,0 +1,12 @@
+dash==2.11.1
+dash-bootstrap-components==1.4.2
+dash-core-components==2.0.0
+dash-html-components==2.0.0
+dash-table==5.0.0
+numpy==1.21.6
+pandas==1.3.5
+plotly==5.15.0
+pytz==2023.3
+stashclient==1.33
+stashcore==1.33
+tqdm==4.65.0
