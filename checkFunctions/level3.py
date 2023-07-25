@@ -1,11 +1,8 @@
 import warnings
-
-from sympy import *
 from scipy.optimize import fsolve
 from scipy.constants import g, R
 import pandas as pd
 import numpy as np
-from ambiance import Atmosphere
 
 
 def normalize_unit(vector_in, unit_in):
