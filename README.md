@@ -1,4 +1,7 @@
 # SensorHealthMonitoring
+
+[![DOI](https://zenodo.org/badge/670617252.svg)](https://zenodo.org/badge/latestdoi/670617252)
+
 This is the official repository for Sensor Health Monitoring (SHM) of the ISTAR aircraft. 
 
 
