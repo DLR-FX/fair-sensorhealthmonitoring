@@ -1,6 +1,3 @@
-import warnings
-from scipy.optimize import fsolve
-from scipy.constants import g, R
 import pandas as pd
 import numpy as np
 

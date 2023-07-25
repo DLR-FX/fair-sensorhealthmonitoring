@@ -1,24 +1,15 @@
-import dash_renderjson
-import plotly.express as px
 from datetime import timedelta
 from datetime import datetime as dt
 from datetime import timezone
 import pytz
 import plotly.graph_objs as go
-from dash import dash_table
 from dash import dcc, html
-import pandas as pd
-from plotly.subplots import make_subplots
-import numpy as np
-from Parsing.parseFunctions import timestamp_from_utc, gen_dict_extract
 from dateutil import parser
-import dash_bootstrap_components as dbc
 
 
 def update_timeline(sensors, sensor_times):
     tz = pytz.timezone('UTC')
-
-    # use scid to fix up times
+    # use stash-scid (series connector id)to fix times
     # find all start and end times.
     parameters = []
     start_times = []

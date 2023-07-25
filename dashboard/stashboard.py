@@ -1,13 +1,8 @@
 from dash import Dash, Input, Output, State
 from stashclient.client import Client
-import plotly.express as px
 import dash_bootstrap_components as dbc
-from datetime import datetime
-import pytz
-import plotly.graph_objs as go
-from dash import dash_table
-from testing.testing_scripts.stashboard_layout import get_layout
-from testing.testing_scripts.stashboard_functions import update_timeline, update_level2, update_level_1, update_level3
+from stashboard_layout import get_layout
+from stashboard_functions import update_timeline, update_level2, update_level_1, update_level3
 
 # first: instance
 instances = {"Production": "prod", "Development": "dev"}

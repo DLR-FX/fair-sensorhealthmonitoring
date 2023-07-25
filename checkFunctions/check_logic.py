@@ -1,17 +1,13 @@
 import time
 
 from Parsing import parseIMCEXP as Rsi
-import pandas as pd
-import checkFunctions.sendMail as sendMail
 from config.dcode_busDefinitions import labels_inetx
-from Parsing.parseFunctions import get_variables_from_database, utc_from_timestamp, data_dict_to_dataframe, \
-    get_mean_noise
+from Parsing.parseFunctions import get_variables_from_database, utc_from_timestamp, data_dict_to_dataframe
 from stashclient.client import Client
 from Parsing.parseIMCEXP import config_from_istar_flight
 import pandas as pd
 from tqdm import tqdm
-from checkFunctions.level3 import altitude_from_pressure, short_time_statistics, fuse_redundant_sensors, \
-    compare_reference_to_signal, normalize_unit, baro_to_gnss, ellipsoid_to_orthometric, gnss_speed
+from checkFunctions.level3 import fuse_redundant_sensors, compare_reference_to_signal, normalize_unit
 import numpy as np
 from check_config import check_config
 
@@ -29,7 +25,6 @@ class check_logic():
         self.layerTwoList = []
         self.data = data
         self.sensorReader = Rsi.ReadSensorInformation()
-        self.mailClient = sendMail.MailClient()
         # functionality
         if stash_check:
             self.check_stash_data(data, instance)
@@ -40,8 +35,6 @@ class check_logic():
         self.get_required_parameters()
         self.layer_one_check()
         self.layer_two_check()
-        self.print_warning()
-        self.mailClient.set_mail_content(self.warning)  # self.mailClient.sendMail()
 
     def pandas_from_stash(self, id):
         """

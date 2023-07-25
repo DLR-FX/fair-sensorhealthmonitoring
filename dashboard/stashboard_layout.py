@@ -1,5 +1,4 @@
 from dash import dcc, html
-import plotly.express as px
 from stashclient.client import Client
 
 

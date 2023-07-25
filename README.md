@@ -11,6 +11,3 @@ This starts the SHM process in the ```checkFunction/check_logic.py``` file which
 SHM results are uploaded to the skystash as JSON and attached to the respective flight. To visualize these results, the ```dashboard/stashboard.py``` function can be executed to open an interactive dashboard.
 
 
-## License
-For open source projects, say how it is licensed.
-
